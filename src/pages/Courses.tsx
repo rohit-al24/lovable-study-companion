@@ -109,12 +109,14 @@ const Courses = () => {
   const [openNoteDialog, setOpenNoteDialog] = useState<{courseIdx: number, noteIdx: number} | null>(null);
   const [noteText, setNoteText] = useState<string>("");
 
+  // Hardcoded user_id for demo
+  const userId = "demo-user";
   // Fetch note text from backend
   const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
     const course = courses[courseIdx];
     const note = course.notes[noteIdx];
     try {
-      const res = await fetch(`http://localhost:8000/notes/${course.name}`);
+      const res = await fetch(`http://localhost:8000/notes/${userId}/${course.name}`);
       if (res.ok) {
         const notes = await res.json();
         const found = notes.find((n: any) => n.filename === note);
@@ -179,7 +181,7 @@ const Courses = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`http://localhost:8000/upload-pdf/${courses[selectedCourseForUpload].name}`, {
+      const response = await fetch(`http://localhost:8000/upload-pdf/${userId}/${courses[selectedCourseForUpload].name}`, {
         method: 'POST',
         body: formData,
       });
