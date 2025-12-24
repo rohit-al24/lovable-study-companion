@@ -32,7 +32,7 @@ const Preferences = () => {
   };
 
   const handleContinue = () => {
-    navigate("/onboarding/exam-schedule");
+    navigate("/onboarding/finish");
   };
 
   return (
@@ -40,10 +40,10 @@ const Preferences = () => {
       <div className="max-w-2xl mx-auto py-8 space-y-6 animate-fade-in">
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Step 2 of 4</span>
-            <span>50% Complete</span>
+            <span>Step 2 of 3</span>
+            <span>66% Complete</span>
           </div>
-          <Progress value={50} className="h-2" />
+          <Progress value={66} className="h-2" />
         </div>
 
         <Card className="p-8 shadow-soft">

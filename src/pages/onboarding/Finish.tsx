@@ -12,7 +12,7 @@ const Finish = () => {
       <div className="max-w-2xl mx-auto py-8 space-y-6 animate-fade-in">
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Step 4 of 4</span>
+            <span>Step 3 of 3</span>
             <span>100% Complete</span>
           </div>
           <Progress value={100} className="h-2" />
