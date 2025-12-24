@@ -7,13 +7,13 @@ import Index from "./pages/Index";
 import Welcome from "./pages/onboarding/Welcome";
 import Profile from "./pages/onboarding/Profile";
 import Preferences from "./pages/onboarding/Preferences";
-
 import Finish from "./pages/onboarding/Finish";
 import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
 import Chat from "./pages/Chat";
 import Schedule from "./pages/Schedule";
 import Settings from "./pages/Settings";
+import StudySession from "./pages/StudySession";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +32,7 @@ const App = () => (
           
           <Route path="/onboarding/finish" element={<Finish />} />
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/study/:subject" element={<StudySession />} />
           <Route path="/courses" element={<Courses />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/schedule" element={<Schedule />} />

@@ -1,10 +1,14 @@
+import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Bell, Upload, MessageCircle, Calendar, BookOpen, Clock, Target } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const { playClickSound } = useVoice();
   const todaysTasks = [
     {
       subject: "Mathematics",
@@ -78,6 +82,10 @@ const Dashboard = () => {
                 <Card
                   key={index}
                   className="p-5 shadow-card hover:shadow-hover transition-all duration-300 hover:-translate-y-1 cursor-pointer"
+                  onClick={() => {
+                    playClickSound();
+                    navigate(`/study/${task.subject}?topic=${encodeURIComponent(task.topic)}`);
+                  }}
                 >
                   <div className="flex items-start justify-between">
                     <div className="space-y-2 flex-1">

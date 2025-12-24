@@ -1,11 +1,29 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Sparkles, Heart, TrendingUp, Calendar } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 const Finish = () => {
   const navigate = useNavigate();
+  const { speak, playClickSound, playSuccessSound } = useVoice();
+
+  useEffect(() => {
+    playSuccessSound();
+    setTimeout(() => {
+      speak("You're all set! Let's get started and study hard to get great marks! I believe in you!");
+    }, 500);
+  }, []);
+
+  const handleGoToDashboard = () => {
+    playClickSound();
+    speak("Welcome to your dashboard! Let's achieve your goals together!");
+    setTimeout(() => {
+      navigate("/dashboard");
+    }, 500);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-success/20 to-warm/20 p-4">
@@ -63,7 +81,7 @@ const Finish = () => {
 
           {/* CTA */}
           <Button
-            onClick={() => navigate("/dashboard")}
+            onClick={handleGoToDashboard}
             size="lg"
             className="w-full bg-primary hover:bg-primary/90 text-white rounded-full shadow-hover transition-all duration-300 hover:scale-105 mt-8"
           >

@@ -1,9 +1,19 @@
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Sparkles, Heart, Brain, TrendingUp } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 const Index = () => {
   const navigate = useNavigate();
+  const { speak, playClickSound } = useVoice();
+
+  const handleGetStarted = () => {
+    playClickSound();
+    speak("Great choice! Let's get started on your learning adventure!");
+    setTimeout(() => {
+      navigate("/welcome");
+    }, 500);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/20 to-info/20">
@@ -56,9 +66,9 @@ const Index = () => {
             <Button 
               size="lg" 
               className="bg-primary hover:bg-primary/90 text-white px-12 py-6 text-lg rounded-full shadow-hover transition-all duration-300 hover:scale-105"
-              onClick={() => navigate("/welcome")}
+              onClick={handleGetStarted}
             >
-              Start Your Journey
+              Get Started
             </Button>
           </div>
 
