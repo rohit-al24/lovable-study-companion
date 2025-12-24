@@ -1,0 +1,1 @@
+cd "g:\STUDY APP\lovable-study-companion"; & ".\.venv\Scripts\python.exe" backend\main.py

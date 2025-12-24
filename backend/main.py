@@ -1,0 +1,77 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+import pdfplumber
+import io
+import os
+from typing import List
+import json
+
+app = FastAPI()
+
+# Enable CORS for frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080", "http://localhost:8081"],  # Vite dev server(s)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Store extracted text (in production, use database)
+notes_storage = {}  # {user_id: {course_name: [notes]}}
+
+from fastapi import Form
+
+@app.post("/upload-pdf/{user_id}/{course_name}")
+async def upload_pdf(user_id: str, course_name: str, file: UploadFile = File(...)):
+    if not file.filename.endswith('.pdf'):
+        return {"error": "Only PDF files are allowed"}
+
+    # Read PDF content
+    content = await file.read()
+
+    # Extract text using pdfplumber
+    text = ""
+    with pdfplumber.open(io.BytesIO(content)) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+
+    # Store the extracted text per user and course
+    if user_id not in notes_storage:
+        notes_storage[user_id] = {}
+    if course_name not in notes_storage[user_id]:
+        notes_storage[user_id][course_name] = []
+    notes_storage[user_id][course_name].append({
+        "filename": file.filename,
+        "text": text,
+        "summary": text[:500] + "..." if len(text) > 500 else text  # Basic summary
+    })
+
+    return {
+        "filename": file.filename,
+        "text_length": len(text),
+        "summary": text[:500] + "..." if len(text) > 500 else text
+    }
+
+@app.get("/notes/{user_id}/{course_name}")
+async def get_notes(user_id: str, course_name: str):
+    return notes_storage.get(user_id, {}).get(course_name, [])
+
+@app.post("/ask-question/{course_name}")
+async def ask_question(course_name: str, question: str):
+    # Placeholder for LLM integration
+    # In future, use OpenAI or similar to answer based on notes
+    notes = notes_storage.get(course_name, [])
+    if not notes:
+        return {"answer": "No notes available for this course."}
+
+    # Simple keyword matching for now
+    all_text = " ".join([note["text"] for note in notes])
+    if question.lower() in all_text.lower():
+        return {"answer": "Based on your notes, yes, this topic is covered."}
+    else:
+        return {"answer": "I couldn't find information about this in your notes. Please check your uploaded materials."}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

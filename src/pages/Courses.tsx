@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
+import { toast } from "@/components/ui/use-toast";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -99,6 +100,35 @@ const Courses = () => {
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
   const [newCourse, setNewCourse] = useState({ name: "", units: 6 });
   const [newExam, setNewExam] = useState<Exam>({ subject: "", date: "" });
+  const [selectedCourseForUpload, setSelectedCourseForUpload] = useState<number | null>(null);
+  const [isAskQuestionOpen, setIsAskQuestionOpen] = useState(false);
+  const [selectedCourseForQuestion, setSelectedCourseForQuestion] = useState<number | null>(null);
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [openNoteDialog, setOpenNoteDialog] = useState<{courseIdx: number, noteIdx: number} | null>(null);
+  const [noteText, setNoteText] = useState<string>("");
+
+  // Fetch note text from backend
+  const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
+    const course = courses[courseIdx];
+    const note = course.notes[noteIdx];
+    try {
+      const res = await fetch(`http://localhost:8000/notes/${course.name}`);
+      if (res.ok) {
+        const notes = await res.json();
+        const found = notes.find((n: any) => n.filename === note);
+        setNoteText(found ? found.text : "No text extracted from this PDF.");
+        setOpenNoteDialog({courseIdx, noteIdx});
+      } else {
+        setNoteText("Could not fetch note text.");
+        setOpenNoteDialog({courseIdx, noteIdx});
+      }
+    } catch {
+      setNoteText("Error connecting to backend.");
+      setOpenNoteDialog({courseIdx, noteIdx});
+    }
+  };
 
   const addCourse = () => {
     if (newCourse.name) {
@@ -137,10 +167,82 @@ const Courses = () => {
   };
 
   const handleFileUpload = (courseIndex: number) => {
-    // Simulating file upload
-    const updated = [...courses];
-    updated[courseIndex].notes.push(`notes-${Date.now()}.pdf`);
-    setCourses(updated);
+    setSelectedCourseForUpload(courseIndex);
+    fileInputRef.current?.click();
+  };
+
+  const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || selectedCourseForUpload === null) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`http://localhost:8000/upload-pdf/${courses[selectedCourseForUpload].name}`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Update the notes with the filename
+        const updatedCourses = [...courses];
+        updatedCourses[selectedCourseForUpload].notes.push(result.filename);
+        setCourses(updatedCourses);
+        toast({
+          title: `PDF uploaded for ${courses[selectedCourseForUpload].name}`,
+          description: result.summary ? (
+            <div>
+              <div className="font-semibold mb-1">Summary:</div>
+              <div className="max-h-32 overflow-y-auto text-xs whitespace-pre-line">{result.summary}</div>
+            </div>
+          ) : "PDF uploaded successfully!",
+        });
+      } else {
+        toast({
+          title: 'Upload failed',
+          description: 'The server could not process your PDF.',
+          variant: 'destructive',
+        });
+        console.error('Upload failed');
+      }
+    } catch (error) {
+      toast({
+        title: 'Upload error',
+        description: 'Could not connect to the server.',
+        variant: 'destructive',
+      });
+      console.error('Error uploading file:', error);
+    }
+
+    // Reset the input
+    event.target.value = '';
+    setSelectedCourseForUpload(null);
+  };
+
+  const askQuestion = async () => {
+    if (!selectedCourseForQuestion || !question.trim()) return;
+
+    try {
+      const response = await fetch(`http://localhost:8000/ask-question/${courses[selectedCourseForQuestion].name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ question }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setAnswer(result.answer);
+      } else {
+        setAnswer("Sorry, I couldn't process your question.");
+      }
+    } catch (error) {
+      console.error('Error asking question:', error);
+      setAnswer("Error connecting to the server.");
+    }
   };
 
   return (
@@ -408,20 +510,77 @@ const Courses = () => {
                         <FileText className="w-4 h-4" />
                         Notes
                       </Label>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => handleFileUpload(index)}
-                      >
-                        <Upload className="w-3 h-3 mr-1" />
-                        Upload
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => handleFileUpload(index)}
+                        >
+                          <Upload className="w-3 h-3 mr-1" />
+                          Upload
+                        </Button>
+                        <Dialog open={isAskQuestionOpen && selectedCourseForQuestion === index} onOpenChange={(open) => {
+                          setIsAskQuestionOpen(open);
+                          if (open) setSelectedCourseForQuestion(index);
+                          else {
+                            setSelectedCourseForQuestion(null);
+                            setQuestion("");
+                            setAnswer("");
+                          }
+                        }}>
+                          <DialogTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-xs"
+                            >
+                              Ask AI
+                            </Button>
+                          </DialogTrigger>
+                          <DialogContent className="rounded-2xl">
+                            <DialogHeader>
+                              <DialogTitle>Ask about {course.name}</DialogTitle>
+                            </DialogHeader>
+                            <div className="space-y-4 pt-4">
+                              <div className="space-y-2">
+                                <Label>Your Question</Label>
+                                <Input
+                                  placeholder="e.g., What is integration?"
+                                  value={question}
+                                  onChange={(e) => setQuestion(e.target.value)}
+                                  className="rounded-xl"
+                                />
+                              </div>
+                              {answer && (
+                                <div className="space-y-2">
+                                  <Label>Answer</Label>
+                                  <div className="p-3 bg-muted rounded-xl text-sm">
+                                    {answer}
+                                  </div>
+                                </div>
+                              )}
+                              <Button
+                                onClick={askQuestion}
+                                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground rounded-full"
+                                disabled={!question.trim()}
+                              >
+                                Ask Question
+                              </Button>
+                            </div>
+                          </DialogContent>
+                        </Dialog>
+                      </div>
                     </div>
                     {course.notes.length > 0 ? (
                       <div className="flex flex-wrap gap-2">
                         {course.notes.map((note, nIdx) => (
-                          <Badge key={nIdx} variant="secondary" className="text-xs">
+                          <Badge
+                            key={nIdx}
+                            variant="secondary"
+                            className="text-xs cursor-pointer hover:underline"
+                            onClick={() => handleNoteClick(index, nIdx)}
+                          >
                             {note}
                           </Badge>
                         ))}
@@ -431,6 +590,20 @@ const Courses = () => {
                         No notes uploaded
                       </p>
                     )}
+
+                    {/* Note Text Dialog */}
+                    <Dialog open={!!openNoteDialog} onOpenChange={(open) => { if (!open) setOpenNoteDialog(null); }}>
+                      <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>
+                            {openNoteDialog ? courses[openNoteDialog.courseIdx].notes[openNoteDialog.noteIdx] : "Note"}
+                          </DialogTitle>
+                        </DialogHeader>
+                        <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded">
+                          {noteText || "Loading..."}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
                   </div>
 
                   {/* Stats */}
@@ -454,6 +627,13 @@ const Courses = () => {
           </div>
         </div>
       </div>
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={onFileChange}
+        accept=".pdf"
+        style={{ display: 'none' }}
+      />
     </div>
   );
 };
