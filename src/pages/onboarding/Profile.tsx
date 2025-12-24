@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 const Profile = () => {
   const navigate = useNavigate();
+  const { speak, playClickSound } = useVoice();
   const [formData, setFormData] = useState({
     name: "",
     college: "",
@@ -16,9 +18,37 @@ const Profile = () => {
     semester: "",
   });
 
+  const handleNameBlur = () => {
+    if (formData.name.trim()) {
+      speak(`Hello ${formData.name}! Nice to meet you! Let's get connected!`);
+    }
+  };
+
+  const handleCollegeBlur = () => {
+    if (formData.college.trim()) {
+      speak(`Wow, ${formData.college}! That's a super college!`);
+    }
+  };
+
+  const handleDegreeBlur = () => {
+    if (formData.degree.trim()) {
+      speak(`${formData.degree}! That's an amazing field of study!`);
+    }
+  };
+
+  const handleSemesterBlur = () => {
+    if (formData.semester.trim()) {
+      speak(`Semester ${formData.semester}! You're doing great! Keep going!`);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/onboarding/preferences");
+    playClickSound();
+    speak("Excellent! Let's set up your study preferences!");
+    setTimeout(() => {
+      navigate("/onboarding/preferences");
+    }, 500);
   };
 
   return (
@@ -38,7 +68,10 @@ const Profile = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/welcome")}
+            onClick={() => {
+              playClickSound();
+              navigate("/welcome");
+            }}
             className="mb-6 -ml-2"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -61,6 +94,7 @@ const Profile = () => {
                   placeholder="Alex"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onBlur={handleNameBlur}
                   required
                   className="rounded-xl"
                 />
@@ -73,6 +107,7 @@ const Profile = () => {
                   placeholder="University of Example"
                   value={formData.college}
                   onChange={(e) => setFormData({ ...formData, college: e.target.value })}
+                  onBlur={handleCollegeBlur}
                   required
                   className="rounded-xl"
                 />
@@ -85,6 +120,7 @@ const Profile = () => {
                   placeholder="B.Sc Computer Science"
                   value={formData.degree}
                   onChange={(e) => setFormData({ ...formData, degree: e.target.value })}
+                  onBlur={handleDegreeBlur}
                   required
                   className="rounded-xl"
                 />
@@ -100,6 +136,7 @@ const Profile = () => {
                   max="12"
                   value={formData.semester}
                   onChange={(e) => setFormData({ ...formData, semester: e.target.value })}
+                  onBlur={handleSemesterBlur}
                   required
                   className="rounded-xl"
                 />

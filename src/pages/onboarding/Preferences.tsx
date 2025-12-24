@@ -6,9 +6,11 @@ import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, Eye, FileText, HelpCircle, Sparkles } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 const Preferences = () => {
   const navigate = useNavigate();
+  const { speak, playClickSound } = useVoice();
   const [preferences, setPreferences] = useState({
     studyHours: 4,
     studyStyle: [] as string[],
@@ -23,6 +25,7 @@ const Preferences = () => {
   ];
 
   const toggleStyle = (style: string) => {
+    playClickSound();
     setPreferences((prev) => ({
       ...prev,
       studyStyle: prev.studyStyle.includes(style)
@@ -32,7 +35,11 @@ const Preferences = () => {
   };
 
   const handleContinue = () => {
-    navigate("/onboarding/finish");
+    playClickSound();
+    speak("Perfect choices! Your study preferences are saved. Almost done!");
+    setTimeout(() => {
+      navigate("/onboarding/finish");
+    }, 500);
   };
 
   return (
@@ -50,7 +57,10 @@ const Preferences = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => navigate("/onboarding/profile")}
+            onClick={() => {
+              playClickSound();
+              navigate("/onboarding/profile");
+            }}
             className="mb-6 -ml-2"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
@@ -78,7 +88,10 @@ const Preferences = () => {
                         ? "bg-primary text-white"
                         : "hover:bg-secondary"
                     }`}
-                    onClick={() => setPreferences({ ...preferences, studyHours: hours })}
+                    onClick={() => {
+                      playClickSound();
+                      setPreferences({ ...preferences, studyHours: hours });
+                    }}
                   >
                     {hours}h
                   </Button>
@@ -132,9 +145,10 @@ const Preferences = () => {
               <Switch
                 id="sundays-free"
                 checked={preferences.sundaysFree}
-                onCheckedChange={(checked) =>
-                  setPreferences({ ...preferences, sundaysFree: checked })
-                }
+                onCheckedChange={(checked) => {
+                  playClickSound();
+                  setPreferences({ ...preferences, sundaysFree: checked });
+                }}
               />
             </div>
 
