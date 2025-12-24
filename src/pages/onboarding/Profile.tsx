@@ -27,10 +27,10 @@ const Profile = () => {
         {/* Progress */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>Step 1 of 4</span>
-            <span>25% Complete</span>
+            <span>Step 1 of 3</span>
+            <span>33% Complete</span>
           </div>
-          <Progress value={25} className="h-2" />
+          <Progress value={33} className="h-2" />
         </div>
 
         {/* Card */}
