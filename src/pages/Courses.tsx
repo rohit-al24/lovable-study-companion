@@ -28,6 +28,8 @@ import {
   FileText,
 } from "lucide-react";
 import { FloatingAssistant } from "@/components/FloatingAssistant";
+import AssistantBubble from "@/components/AssistantBubble";
+import { useVoice } from "@/hooks/useVoice";
 
 interface Exam {
   subject: string;
@@ -101,10 +103,29 @@ const Courses = () => {
     init();
   }, []);
 
-  // Handler for assistant queries on Courses page
-  const handleAssistantQuery = (query: string) => {
-    // Replace with logic to answer questions about specific courses
-    alert(`Assistant heard: ${query}`);
+  // Assistant UI + voice
+  const [assistantMessage, setAssistantMessage] = useState<string>("");
+  const { speak } = useVoice(localStorage.getItem('griffin_voice') || '');
+
+  // Handler for assistant queries on Courses page (calls backend LLM)
+  const handleAssistantQuery = async (query: string) => {
+    setAssistantMessage('Thinking...');
+    try {
+      const resp = await fetch('/api/llm/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: query, context: { courses } }),
+      });
+      const data = await resp.json();
+      const answerText = data?.answer || data?.text || 'Sorry, no answer.';
+      setAssistantMessage(answerText);
+      speak && speak(answerText, 1);
+      setTimeout(() => setAssistantMessage(''), 10000);
+    } catch (err) {
+      console.error(err);
+      setAssistantMessage('Error contacting assistant.');
+      setTimeout(() => setAssistantMessage(''), 6000);
+    }
   };
   // Fetch note text from Supabase notes table
   const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
@@ -792,7 +813,10 @@ const Courses = () => {
         style={{ display: 'none' }}
       />
     </div>
-    <FloatingAssistant onQuery={handleAssistantQuery} />
+      <FloatingAssistant onQuery={handleAssistantQuery} />
+      {assistantMessage && (
+        <AssistantBubble message={assistantMessage} onClose={() => setAssistantMessage('')} />
+      )}
     </>
   );
 };

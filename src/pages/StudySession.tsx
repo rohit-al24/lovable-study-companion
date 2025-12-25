@@ -126,13 +126,13 @@ const StudySession = () => {
         const transcript = event.results[0][0].transcript;
         setInputMessage(transcript);
         setIsListening(false);
-        // If user says wake word at start, auto-send (accept Axios or Alexa or Lovable)
+        // If user says wake word at start, auto-send (accept only Griffin)
         const t = transcript.trim().toLowerCase();
-        if (t.startsWith('axios') || t.startsWith('alexa') || t.startsWith('lovable')) {
-            // remove wake word and send the rest
-            const cleaned = transcript.replace(/^(axios|alexa|lovable)\b[,\s]*/i, '').trim();
-            setTimeout(() => handleSendMessage(cleaned), 100);
-          }
+        if (t.startsWith('griffin')) {
+          // remove wake word and send the rest
+          const cleaned = transcript.replace(/^(griffin)\b[\,\s]*/i, '').trim();
+          setTimeout(() => handleSendMessage(cleaned), 100);
+        }
       };
       recognition.onerror = () => setIsListening(false);
       recognition.onend = () => setIsListening(false);
@@ -171,11 +171,11 @@ const StudySession = () => {
         const text = (final || interim).trim();
         if (!text) return;
 
-        // detect wake words 'axios' or 'alexa'
+        // detect wake word 'griffin' only
         const lowered = text.toLowerCase();
-        if (lowered.includes('axios') || lowered.includes('alexa')) {
-          // prepare query by removing wake words
-          const cleaned = text.replace(/axios/ig, '').replace(/alexa/ig, '').trim();
+        if (lowered.includes('griffin')) {
+          // prepare query by removing wake word
+          const cleaned = text.replace(/griffin/ig, '').trim();
           // activate assistant UI briefly
           setIsAssistantActive(true);
           setActiveTab('chat');

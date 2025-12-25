@@ -10,7 +10,6 @@ import { Bell, Upload, MessageCircle, Calendar, BookOpen, Clock, Target } from "
 import { useVoice } from "@/hooks/useVoice";
 import { FloatingAssistant } from "@/components/FloatingAssistant";
 import AssistantBubble from "@/components/AssistantBubble";
-import { useVoice } from "@/hooks/useVoice" as useVoiceHook;
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -18,7 +17,7 @@ const Dashboard = () => {
   // Use selected voice from localStorage if set
   const [selectedVoice, setSelectedVoice] = useState<string>("");
   useEffect(() => {
-    const v = localStorage.getItem("axios_voice");
+    const v = localStorage.getItem("griffin_voice");
     if (v) setSelectedVoice(v);
   }, []);
   const { playClickSound } = useVoice(selectedVoice);
@@ -51,32 +50,28 @@ const Dashboard = () => {
 
   // Assistant UI + voice
   const [assistantMessage, setAssistantMessage] = useState<string>("");
-  const { speak } = useVoiceHook(selectedVoice);
+  const { speak } = useVoice(selectedVoice);
 
-  // Handler for assistant queries: basic parsing for course/progress questions
-  const handleAssistantQuery = (query: string) => {
-    const q = query.toLowerCase();
-    let reply = "Sorry, I couldn't find an answer. Try asking about a specific course or its progress.";
-    // If user asks about overall progress
-    if (q.includes('progress') || q.includes('how am i doing') || q.includes('today')) {
-      // compute average progress
-      if (courses.length > 0) {
-        const avg = Math.round(courses.reduce((s: number, c: any) => s + (c.progress || 0), 0) / courses.length);
-        reply = `Your average course progress is ${avg} percent across ${courses.length} courses.`;
-      } else reply = "You don't have any courses yet.";
-    } else {
-      // try to match a course name
-      for (const c of courses) {
-        if (q.includes((c.name || '').toString().toLowerCase())) {
-          reply = `${c.name} is ${c.progress}% complete. You have completed ${c.hoursCompleted || 0} out of ${c.totalHours || 0} hours.`;
-          break;
-        }
-      }
+  // Handler for assistant queries: send to LLM backend and speak/display reply
+  const handleAssistantQuery = async (query: string) => {
+    setAssistantMessage('Thinking...');
+    try {
+      const resp = await fetch('/api/llm/ask', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: query, context: { courses } }),
+      });
+      const data = await resp.json();
+      const answer = data?.answer || data?.text || 'Sorry, no answer from the assistant.';
+      setAssistantMessage(answer);
+      speak && speak(answer, 1);
+      setTimeout(() => setAssistantMessage(''), 10000);
+    } catch (err) {
+      const msg = 'Error contacting assistant.';
+      setAssistantMessage(msg);
+      console.error(err);
+      setTimeout(() => setAssistantMessage(''), 6000);
     }
-    setAssistantMessage(reply);
-    speak && speak(reply, 1);
-    // auto-hide after 8s
-    setTimeout(() => setAssistantMessage(''), 8000);
   };
   return (
     <>
@@ -88,8 +83,8 @@ const Dashboard = () => {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">Hi from Axios 💙</h1>
-              <p className="text-muted-foreground">Axios has prepared your study plan for today</p>
+                <h1 className="text-3xl font-bold text-foreground">Hi from Griffin 💙</h1>
+                <p className="text-muted-foreground">Griffin has prepared your study plan for today</p>
             </div>
             <Button variant="ghost" size="icon" className="rounded-full">
               <Bell className="w-5 h-5" />
@@ -140,7 +135,7 @@ const Dashboard = () => {
                 className="h-24 flex-col gap-2 rounded-2xl border-2 hover:border-primary hover:bg-primary/5"
               >
                 <MessageCircle className="w-6 h-6" />
-                <span className="text-sm">Ask Lovable</span>
+                  <span className="text-sm">Ask Griffin</span>
               </Button>
               <Button
                 variant="outline"

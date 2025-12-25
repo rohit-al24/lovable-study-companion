@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 import io
 import os
@@ -21,7 +21,17 @@ app.add_middleware(
 )
 
 # Mount LLM API
-app.include_router(llm_router)
+API_KEY = os.getenv('BACKEND_API_KEY')
+
+def require_api_key(x_api_key: str | None = Header(None)):
+    # If API_KEY is set in the environment, require it; otherwise allow (development)
+    if API_KEY:
+        if not x_api_key or x_api_key != API_KEY:
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return True
+
+
+app.include_router(llm_router, dependencies=[Depends(require_api_key)])
 
 # Store extracted text (in production, use database)
 notes_storage = {}  # {user_id: {course_name: [notes]}}
