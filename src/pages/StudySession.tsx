@@ -411,7 +411,12 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
         // Get user id from supabase auth
         const { data: userData } = await import("@/lib/supabaseClient").then(m => m.supabase.auth.getUser());
         const uid = (userData as any)?.user?.id || null;
-        if (!uid || !subject) return;
+        if (!uid || !subject) {
+          setUserNotes([]);
+          setSelectedNoteId(null);
+          setNotesLoading(false);
+          return;
+        }
         // Fetch notes for this user and course
         const { data, error } = await import("@/lib/supabaseClient").then(m => m.supabase
           .from('notes')
@@ -420,10 +425,21 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
           .eq('course_name', subject)
           .order('created_at', { ascending: false })
         );
-        if (!error && data) {
+        if (error) {
+          setUserNotes([]);
+          setSelectedNoteId(null);
+          alert('Error fetching notes: ' + error.message);
+        } else if (data && data.length > 0) {
           setUserNotes(data);
-          if (data.length > 0) setSelectedNoteId(data[0].id);
+          setSelectedNoteId(data[0].id);
+        } else {
+          setUserNotes([]);
+          setSelectedNoteId(null);
         }
+      } catch (e) {
+        setUserNotes([]);
+        setSelectedNoteId(null);
+        alert('Error fetching notes: ' + (e as any).toString());
       } finally {
         setNotesLoading(false);
       }
@@ -523,7 +539,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
                   ))}
                 </div>
               ) : (
-                <div className="mb-4 text-muted-foreground">No uploaded notes found for this course. Showing sample notes.</div>
+                <div className="mb-4 text-destructive font-semibold">No uploaded notes found for this course.<br/>You can upload notes from the Courses page or check your Supabase data.</div>
               )}
               <div className="prose prose-sm max-w-none">
                 {notes.split("\n").map((line, i) => {
