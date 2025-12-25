@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
 import { apiUrl } from "@/lib/api";
+import { supabase } from "@/lib/supabaseClient";
 
 interface Message {
   role: "user" | "assistant";
@@ -832,3 +833,5 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
 };
 
 export default StudySession;
+
+supabase.from('notes').select('*').then(console.log);
