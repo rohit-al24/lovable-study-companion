@@ -16,7 +16,7 @@ const Chat = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "Hi there! 💛 I'm Lovable, your AI study companion. How can I help you today?",
+      content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?",
       timestamp: "10:30 AM",
     },
   ]);
@@ -65,7 +65,7 @@ const Chat = () => {
                 <Heart className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-foreground">Chat with Lovable</h1>
+                <h1 className="text-2xl font-bold text-foreground">Chat with Griffin</h1>
                 <p className="text-sm text-muted-foreground">Your caring AI study assistant</p>
               </div>
             </div>
@@ -132,7 +132,7 @@ const Chat = () => {
               </Button>
 
               <Input
-                placeholder="Ask Lovable anything..."
+                placeholder="Ask Griffin anything..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyPress={(e) => e.key === "Enter" && sendMessage()}
@@ -155,7 +155,7 @@ const Chat = () => {
           </Card>
 
           <p className="text-center text-xs text-muted-foreground mt-3">
-            Lovable is thinking... ✨
+            Griffin is thinking... ✨
           </p>
         </div>
       </div>
