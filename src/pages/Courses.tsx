@@ -51,6 +51,45 @@ interface Course {
 }
 
 const Courses = () => {
+    // Delete note from Supabase and update course notes
+    const handleDeleteNote = async () => {
+      if (!openNoteDialog || !userId) return;
+      const courseIdx = openNoteDialog.courseIdx;
+      const noteIdx = openNoteDialog.noteIdx;
+      const course = courses[courseIdx];
+      const noteFilename = course.notes[noteIdx];
+      try {
+        // Delete note from notes table
+        const { error: noteError } = await supabase
+          .from('notes')
+          .delete()
+          .match({ user_id: userId, course_name: course.name, filename: noteFilename });
+        if (noteError) {
+          toast({ title: 'Failed to delete note', description: noteError.message, variant: 'destructive' });
+          return;
+        }
+        // Remove note from course notes array
+        const updatedNotes = course.notes.filter((_, idx) => idx !== noteIdx);
+        const { error: courseError } = await supabase
+          .from('courses')
+          .update({ notes: updatedNotes })
+          .eq('user_id', userId)
+          .eq('name', course.name);
+        if (courseError) {
+          toast({ title: 'Failed to update course notes', description: courseError.message, variant: 'destructive' });
+          return;
+        }
+        // Refresh courses
+        const { data } = await supabase.from('courses').select('*').eq('user_id', userId);
+        setCourses(data || []);
+        toast({ title: `Note deleted for ${course.name}`, description: 'Note removed from your notes.' });
+        setOpenNoteDialog(null);
+        setNoteText("");
+      } catch (err) {
+        toast({ title: 'Error', description: 'Could not delete note.', variant: 'destructive' });
+        console.error('Error deleting note:', err);
+      }
+    };
   const [courses, setCourses] = useState<Course[]>([]);
   // Fetch real course data from backend on mount
 
@@ -761,8 +800,12 @@ const Courses = () => {
                           </DialogTitle>
                           <DialogDescription>Preview of the extracted text from the uploaded PDF.</DialogDescription>
                         </DialogHeader>
-                        <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded">
+                        <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded mb-4">
                           {noteText || "Loading..."}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" onClick={() => setOpenNoteDialog(null)}>Close</Button>
+                          <Button variant="destructive" onClick={handleDeleteNote}>Delete</Button>
                         </div>
                       </DialogContent>
                     </Dialog>
