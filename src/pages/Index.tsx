@@ -28,7 +28,7 @@ const Index = () => {
 
           {/* Hero Title */}
           <h1 className="text-6xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-            AXIOS
+            GRIFFIN
           </h1>
           <p className="text-2xl text-muted-foreground">
             Your worthy AI study companion
