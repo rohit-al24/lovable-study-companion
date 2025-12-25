@@ -28,10 +28,10 @@ const Index = () => {
 
           {/* Hero Title */}
           <h1 className="text-6xl font-bold bg-gradient-hero bg-clip-text text-transparent">
-            LOVABLE
+            AXIOS
           </h1>
           <p className="text-2xl text-muted-foreground">
-            Your caring AI study companion
+            Your worthy AI study companion
           </p>
 
           {/* Value Props */}

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,38 +12,45 @@ import { toast } from "@/components/ui/use-toast";
 
 const Profile = () => {
   const navigate = useNavigate();
-  const { speak, playClickSound } = useVoice();
+  // Use selected voice from localStorage if set
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
+  useEffect(() => {
+    const v = localStorage.getItem("axios_voice");
+    if (v) setSelectedVoice(v);
+  }, []);
+  const { speak, playClickSound } = useVoice(selectedVoice);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
     name: "",
     college: "",
     degree: "",
-    semester: "",
+    semester: "1",
   });
   const [loading, setLoading] = useState(false);
 
   const handleNameBlur = () => {
     if (formData.name.trim()) {
-      speak(`Hello ${formData.name}! Nice to meet you! Let's get connected!`);
+      const firstName = formData.name.trim().split(' ')[0];
+      speak(`Welcome, ${firstName}! We're excited to have you join us!`);
     }
   };
 
   const handleCollegeBlur = () => {
     if (formData.college.trim()) {
-      speak(`Wow, ${formData.college}! That's a super college!`);
+      speak(`Awesome! ${formData.college} sounds like a fantastic place to learn!`);
     }
   };
 
   const handleDegreeBlur = () => {
     if (formData.degree.trim()) {
-      speak(`${formData.degree}! That's an amazing field of study!`);
+      speak(`Wow, studying ${formData.degree} sounds exciting! Keep it up!`);
     }
   };
 
   const handleSemesterBlur = () => {
     if (formData.semester.trim()) {
-      speak(`Semester ${formData.semester}! You're doing great! Keep going!`);
+      speak(`You're in semester ${formData.semester}. Let's make this one your best yet!`);
     }
   };
 

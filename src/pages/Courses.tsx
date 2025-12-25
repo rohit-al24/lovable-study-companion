@@ -27,6 +27,7 @@ import {
   X,
   FileText,
 } from "lucide-react";
+import { FloatingAssistant } from "@/components/FloatingAssistant";
 
 interface Exam {
   subject: string;
@@ -99,6 +100,12 @@ const Courses = () => {
     };
     init();
   }, []);
+
+  // Handler for assistant queries on Courses page
+  const handleAssistantQuery = (query: string) => {
+    // Replace with logic to answer questions about specific courses
+    alert(`Assistant heard: ${query}`);
+  };
   // Fetch note text from Supabase notes table
   const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
     if (!userId) {
@@ -374,7 +381,8 @@ const Courses = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-warm/10 to-secondary/10 pb-20 md:pb-8 md:pt-20">
+    <>
+      <div className="min-h-screen bg-gradient-to-br from-background via-warm/10 to-secondary/10 pb-20 md:pb-8 md:pt-20">
       <Navigation />
 
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -784,6 +792,8 @@ const Courses = () => {
         style={{ display: 'none' }}
       />
     </div>
+    <FloatingAssistant onQuery={handleAssistantQuery} />
+    </>
   );
 };
 

@@ -1,15 +1,22 @@
 import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Heart, BookOpen, Target, Sparkles } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
 
 const Welcome = () => {
   const navigate = useNavigate();
-  const { speak, playClickSound } = useVoice();
+  // Use selected voice from localStorage if set
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
+  useEffect(() => {
+    const v = localStorage.getItem("axios_voice");
+    if (v) setSelectedVoice(v);
+  }, []);
+  const { speak, playClickSound } = useVoice(selectedVoice);
 
   const handleStartJourney = () => {
     playClickSound();
-    speak("Welcome to Lovable! Let's begin your journey to success!");
+    speak("Welcome to Axios! Let's begin your journey to success!");
     setTimeout(() => navigate("/onboarding/profile"), 500);
   };
 
@@ -29,10 +36,10 @@ const Welcome = () => {
         {/* Content */}
         <div className="text-center space-y-6">
           <h1 className="text-5xl font-bold text-foreground">
-            Welcome to Lovable 💛
+            Welcome to Axios 💙
           </h1>
           <p className="text-xl text-muted-foreground max-w-lg mx-auto">
-            Your caring AI companion that helps you study smarter, stay organized, and reach your academic goals.
+            Your worthy AI companion that helps you study smarter, stay organized, and reach your academic goals.
           </p>
 
           {/* Features */}

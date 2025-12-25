@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-export const useVoice = () => {
+export const useVoice = (selectedVoiceName?: string) => {
   const speak = useCallback((text: string, rate: number = 1) => {
     if ("speechSynthesis" in window) {
       // Cancel any ongoing speech
@@ -11,16 +11,22 @@ export const useVoice = () => {
       utterance.pitch = 1.1;
       utterance.volume = 1;
       
-      // Try to get a non-default voice (e.g., UK English Female, or first available)
+      // If a specific voice is selected, use it
       const voices = window.speechSynthesis.getVoices();
-      let preferredVoice = voices.find(
-        (v) => v.name.includes("UK") && v.name.includes("Female")
-      );
-      if (!preferredVoice) {
-        preferredVoice = voices.find(
-          (v) => v.name !== "default" && v.lang.startsWith("en")
-        );
+      let preferredVoice = undefined;
+      if (selectedVoiceName) {
+        preferredVoice = voices.find(v => v.name === selectedVoiceName);
       }
+      if (!preferredVoice) {
+        // Prioritize a female UK English voice
+        preferredVoice =
+          voices.find(v => v.lang === "en-GB" && (v.gender === "female" || v.name.toLowerCase().includes("female"))) ||
+          voices.find(v => v.lang === "en-GB" && v.name.toLowerCase().includes("uk")) ||
+          voices.find(v => v.lang === "en-GB") ||
+          voices.find(v => v.lang && v.lang.startsWith("en") && (v.gender === "female" || v.name.toLowerCase().includes("female"))) ||
+          voices.find(v => v.lang && v.lang.startsWith("en"));
+      }
+      // Fallback to first available
       if (!preferredVoice && voices.length > 0) {
         preferredVoice = voices[0];
       }

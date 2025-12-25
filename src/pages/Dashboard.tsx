@@ -8,11 +8,20 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Bell, Upload, MessageCircle, Calendar, BookOpen, Clock, Target } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
+import { FloatingAssistant } from "@/components/FloatingAssistant";
+import AssistantBubble from "@/components/AssistantBubble";
+import { useVoice } from "@/hooks/useVoice" as useVoiceHook;
 
 const Dashboard = () => {
   const navigate = useNavigate();
 
-  const { playClickSound } = useVoice();
+  // Use selected voice from localStorage if set
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
+  useEffect(() => {
+    const v = localStorage.getItem("axios_voice");
+    if (v) setSelectedVoice(v);
+  }, []);
+  const { playClickSound } = useVoice(selectedVoice);
   const [courses, setCourses] = useState<any[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,8 +49,38 @@ const Dashboard = () => {
   // Optionally, you can implement a real "Today's Study Plan" based on course data or leave it empty for now
   const todaysTasks: any[] = [];
 
+  // Assistant UI + voice
+  const [assistantMessage, setAssistantMessage] = useState<string>("");
+  const { speak } = useVoiceHook(selectedVoice);
+
+  // Handler for assistant queries: basic parsing for course/progress questions
+  const handleAssistantQuery = (query: string) => {
+    const q = query.toLowerCase();
+    let reply = "Sorry, I couldn't find an answer. Try asking about a specific course or its progress.";
+    // If user asks about overall progress
+    if (q.includes('progress') || q.includes('how am i doing') || q.includes('today')) {
+      // compute average progress
+      if (courses.length > 0) {
+        const avg = Math.round(courses.reduce((s: number, c: any) => s + (c.progress || 0), 0) / courses.length);
+        reply = `Your average course progress is ${avg} percent across ${courses.length} courses.`;
+      } else reply = "You don't have any courses yet.";
+    } else {
+      // try to match a course name
+      for (const c of courses) {
+        if (q.includes((c.name || '').toString().toLowerCase())) {
+          reply = `${c.name} is ${c.progress}% complete. You have completed ${c.hoursCompleted || 0} out of ${c.totalHours || 0} hours.`;
+          break;
+        }
+      }
+    }
+    setAssistantMessage(reply);
+    speak && speak(reply, 1);
+    // auto-hide after 8s
+    setTimeout(() => setAssistantMessage(''), 8000);
+  };
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-20 md:pb-8 md:pt-20">
+    <>
+      <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-20 md:pb-8 md:pt-20">
       <Navigation />
       
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -49,8 +88,8 @@ const Dashboard = () => {
           {/* Header */}
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-foreground">Hi Alex 💛</h1>
-              <p className="text-muted-foreground">Here's your study plan for today</p>
+              <h1 className="text-3xl font-bold text-foreground">Hi from Axios 💙</h1>
+              <p className="text-muted-foreground">Axios has prepared your study plan for today</p>
             </div>
             <Button variant="ghost" size="icon" className="rounded-full">
               <Bell className="w-5 h-5" />
@@ -160,7 +199,12 @@ const Dashboard = () => {
           </Card>
         </div>
       </div>
-    </div>
+      </div>
+      <FloatingAssistant onQuery={handleAssistantQuery} />
+      {assistantMessage && (
+        <AssistantBubble message={assistantMessage} onClose={() => setAssistantMessage('')} />
+      )}
+    </>
   );
 };
 

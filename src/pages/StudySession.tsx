@@ -58,7 +58,42 @@ const StudySession = () => {
   const { subject } = useParams();
   const [searchParams] = useSearchParams();
   const topic = searchParams.get("topic") || "Introduction";
-  const { speak, playSuccessSound, playClickSound } = useVoice();
+  // Voice selection state
+  const [voiceList, setVoiceList] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoice, setSelectedVoice] = useState<string>("");
+  useEffect(() => {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      const populateVoices = () => {
+        const voices = window.speechSynthesis.getVoices();
+        setVoiceList(voices.filter(v => v.lang.startsWith("en")));
+      };
+      populateVoices();
+      window.speechSynthesis.onvoiceschanged = populateVoices;
+    }
+  }, []);
+  const { speak, playSuccessSound, playClickSound } = useVoice(selectedVoice);
+  // Voice selection dropdown UI
+  const renderVoiceDropdown = () => (
+    <div style={{ marginBottom: 8 }}>
+      <label htmlFor="voice-select" style={{ marginRight: 8 }}>Reply Voice:</label>
+      <select
+        id="voice-select"
+        value={selectedVoice}
+        onChange={e => {
+          setSelectedVoice(e.target.value);
+          localStorage.setItem("axios_voice", e.target.value);
+        }}
+        style={{ padding: 4, borderRadius: 4 }}
+      >
+        <option value="">Auto (UK English Female preferred)</option>
+        {voiceList.map(v => (
+          <option key={v.name} value={v.name}>
+            {v.name} ({v.lang})
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 
   const [activeTab, setActiveTab] = useState<"notes" | "chat" | "quiz">("notes");
   const [messages, setMessages] = useState<Message[]>([
@@ -70,6 +105,12 @@ const StudySession = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [liveAssistantOn, setLiveAssistantOn] = useState(false);
+  const [isAssistantActive, setIsAssistantActive] = useState(false);
+  const recognitionRef = useRef<any | null>(null);
+  const assistantTimeoutRef = useRef<number | null>(null);
+  const [assistantPos, setAssistantPos] = useState<{x:number,y:number}>({ x: window.innerWidth - 84, y: window.innerHeight - 120 });
+  const dragRef = useRef<{dragging:boolean, startX:number, startY:number, originX:number, originY:number}>({ dragging:false, startX:0, startY:0, originX:0, originY:0 });
     // Voice recognition for mic button
     const startListening = () => {
       if (!('webkitSpeechRecognition' in window)) {
@@ -85,15 +126,92 @@ const StudySession = () => {
         const transcript = event.results[0][0].transcript;
         setInputMessage(transcript);
         setIsListening(false);
-        // If user says "Lovable" at start, auto-send
-        if (transcript.trim().toLowerCase().startsWith('lovable')) {
-          setTimeout(() => handleSendMessage(), 100);
-        }
+        // If user says wake word at start, auto-send (accept Axios or Alexa or Lovable)
+        const t = transcript.trim().toLowerCase();
+        if (t.startsWith('axios') || t.startsWith('alexa') || t.startsWith('lovable')) {
+            // remove wake word and send the rest
+            const cleaned = transcript.replace(/^(axios|alexa|lovable)\b[,\s]*/i, '').trim();
+            setTimeout(() => handleSendMessage(cleaned), 100);
+          }
       };
       recognition.onerror = () => setIsListening(false);
       recognition.onend = () => setIsListening(false);
       recognition.start();
     };
+
+    // Background wake-word listener when Live Assistant is enabled
+    useEffect(() => {
+      if (!liveAssistantOn) {
+        // stop any existing background recognition
+        if (recognitionRef.current) {
+          try { recognitionRef.current.stop(); } catch (e) {}
+          recognitionRef.current = null;
+        }
+        return;
+      }
+
+      if (!('webkitSpeechRecognition' in window)) {
+        console.warn('Speech recognition not supported in this browser. Live assistant disabled.');
+        return;
+      }
+
+      const rec = new (window as any).webkitSpeechRecognition();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = 'en-IN';
+
+      rec.onresult = (event: any) => {
+        let interim = '';
+        let final = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const res = event.results[i];
+          if (res.isFinal) final += res[0].transcript;
+          else interim += res[0].transcript;
+        }
+        const text = (final || interim).trim();
+        if (!text) return;
+
+        // detect wake words 'axios' or 'alexa'
+        const lowered = text.toLowerCase();
+        if (lowered.includes('axios') || lowered.includes('alexa')) {
+          // prepare query by removing wake words
+          const cleaned = text.replace(/axios/ig, '').replace(/alexa/ig, '').trim();
+          // activate assistant UI briefly
+          setIsAssistantActive(true);
+          setActiveTab('chat');
+          // set transcript into input (simulate typing)
+          setInputMessage(cleaned);
+          // if final result present, send automatically after short delay
+          if (final) {
+            // small delay to allow user to hear expansion
+            if (assistantTimeoutRef.current) window.clearTimeout(assistantTimeoutRef.current);
+            assistantTimeoutRef.current = window.setTimeout(() => {
+              handleSendMessage(cleaned);
+              // hide active state after a moment
+              setTimeout(() => setIsAssistantActive(false), 800);
+            }, 600);
+          }
+        }
+      };
+
+      rec.onerror = (e:any) => {
+        console.warn('Live assistant recognition error', e);
+      };
+
+      rec.onend = () => {
+        // restart to keep listening
+        try { rec.start(); } catch (e) {}
+      };
+
+      recognitionRef.current = rec;
+      try { rec.start(); } catch (e) { console.warn('Could not start live recognition', e); }
+
+      return () => {
+        try { recognitionRef.current && recognitionRef.current.stop(); } catch (e) {}
+        recognitionRef.current = null;
+        if (assistantTimeoutRef.current) { window.clearTimeout(assistantTimeoutRef.current); assistantTimeoutRef.current = null; }
+      };
+    }, [liveAssistantOn]);
   const [quizStarted, setQuizStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
@@ -205,10 +323,11 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     }
   }, [subject]);
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim()) return;
+  const handleSendMessage = async (messageText?: string) => {
+    const textToSend = (messageText !== undefined) ? messageText : inputMessage;
+    if (!textToSend || !textToSend.trim()) return;
 
-    const userMessage: Message = { role: "user", content: inputMessage };
+    const userMessage: Message = { role: "user", content: textToSend };
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
     setChatLoading(true);
@@ -227,7 +346,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question: inputMessage,
+          question: textToSend,
           context: contextText,
           subject: subject || "",
           topic,
@@ -365,6 +484,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-8">
       <div className="container mx-auto px-4 py-6 max-w-4xl">
+        {renderVoiceDropdown()}
         <div className="animate-fade-in space-y-6">
           {/* Header */}
           <div className="flex items-center gap-4">
@@ -676,6 +796,55 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
           )}
         </div>
       </div>
+        {/* Floating Live Assistant Toggle Button */}
+        <div style={{ position: 'fixed', left: assistantPos.x, top: assistantPos.y, zIndex: 60, touchAction: 'none' }}
+             onPointerDown={(e) => {
+               const p = dragRef.current; p.dragging = true; p.startX = e.clientX; p.startY = e.clientY; p.originX = assistantPos.x; p.originY = assistantPos.y; (e.target as Element).setPointerCapture?.((e as any).pointerId);
+             }}
+             onPointerMove={(e) => {
+               const p = dragRef.current; if (!p.dragging) return; const dx = e.clientX - p.startX; const dy = e.clientY - p.startY; setAssistantPos({ x: Math.min(Math.max(8, p.originX + dx), window.innerWidth - 72), y: Math.min(Math.max(8, p.originY + dy), window.innerHeight - 72) });
+             }}
+             onPointerUp={(e) => { const p = dragRef.current; p.dragging = false; try { (e.target as Element).releasePointerCapture?.((e as any).pointerId); } catch {} }}>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setLiveAssistantOn((s) => !s)}
+              title={liveAssistantOn ? 'Disable Live Assistant' : 'Enable Live Assistant'}
+              className="rounded-full p-2 shadow-lg"
+              style={{
+                width: 64,
+                height: 64,
+                borderRadius: 32,
+                padding: 0,
+                overflow: 'hidden',
+                background: liveAssistantOn ? '#0ea5a0' : '#fff',
+                transition: 'transform 220ms ease, box-shadow 220ms ease'
+              }}
+            >
+              <img src="/loader3.gif" alt="live" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', filter: liveAssistantOn ? 'saturate(1.2) brightness(1.05)' : 'none' }} />
+            </button>
+
+            {/* Expansion / Siri-style visual */}
+            {isAssistantActive && (
+              <div style={{ position: 'absolute', left: -64, top: -64, width: 192, height: 192, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ width: 160, height: 160, borderRadius: '50%', background: 'rgba(14,165,160,0.12)', backdropFilter: 'blur(6px)', transform: 'scale(1)', animation: 'siriExpand 700ms ease-out' }} />
+              </div>
+            )}
+
+            {liveAssistantOn && (
+              <div style={{ position: 'absolute', right: 80, bottom: 8, width: 240 }}>
+                <div className={`p-3 rounded-xl shadow-xl bg-card border border-neutral/10 ${isAssistantActive ? 'scale-105' : ''}`}>
+                  <div className="flex items-center gap-3">
+                    <img src="/loader3.gif" alt="active" style={{ width: 40, height: 40, borderRadius: '50%' }} />
+                    <div>
+                      <div className="font-semibold">Axios (Live)</div>
+                      <div className="text-sm text-muted-foreground">Say "Axios" or "Alexa" to ask a question</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
     </div>
   );
 };
