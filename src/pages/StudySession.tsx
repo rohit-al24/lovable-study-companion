@@ -59,42 +59,8 @@ const StudySession = () => {
   const { subject } = useParams();
   const [searchParams] = useSearchParams();
   const topic = searchParams.get("topic") || "Introduction";
-  // Voice selection state
-  const [voiceList, setVoiceList] = useState<SpeechSynthesisVoice[]>([]);
-  const [selectedVoice, setSelectedVoice] = useState<string>("");
-  useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const populateVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        setVoiceList(voices.filter(v => v.lang.startsWith("en")));
-      };
-      populateVoices();
-      window.speechSynthesis.onvoiceschanged = populateVoices;
-    }
-  }, []);
-  const { speak, playSuccessSound, playClickSound } = useVoice(selectedVoice);
-  // Voice selection dropdown UI
-  const renderVoiceDropdown = () => (
-    <div style={{ marginBottom: 8 }}>
-      <label htmlFor="voice-select" style={{ marginRight: 8 }}>Reply Voice:</label>
-      <select
-        id="voice-select"
-        value={selectedVoice}
-        onChange={e => {
-          setSelectedVoice(e.target.value);
-          localStorage.setItem("axios_voice", e.target.value);
-        }}
-        style={{ padding: 4, borderRadius: 4 }}
-      >
-        <option value="">Auto (UK English Female preferred)</option>
-        {voiceList.map(v => (
-          <option key={v.name} value={v.name}>
-            {v.name} ({v.lang})
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+  // ...existing code...
+  const { speak, playSuccessSound, playClickSound } = useVoice();
 
   const [activeTab, setActiveTab] = useState<"notes" | "chat" | "quiz">("notes");
   const [messages, setMessages] = useState<Message[]>([
@@ -485,7 +451,6 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-8">
       <div className="container mx-auto px-4 py-6 max-w-4xl">
-        {renderVoiceDropdown()}
         <div className="animate-fade-in space-y-6">
           {/* Header */}
           <div className="flex items-center gap-4">
