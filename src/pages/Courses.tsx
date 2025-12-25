@@ -105,6 +105,9 @@ const Courses = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [openNoteDialog, setOpenNoteDialog] = useState<{courseIdx: number, noteIdx: number} | null>(null);
   const [noteText, setNoteText] = useState<string>("");
+  const [noteTitle, setNoteTitle] = useState<string>("");
+  const [noteOwner, setNoteOwner] = useState<string | null>(null);
+  const [publicNotesMap, setPublicNotesMap] = useState<Record<number, any[]>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewText, setPreviewText] = useState<string>("");
   const [previewFilename, setPreviewFilename] = useState<string>("");
@@ -141,6 +144,29 @@ const Courses = () => {
       }
     };
     init();
+    // fetch public notes for courses (aggregated across users)
+    const fetchPublicNotes = async () => {
+      try {
+        if (!Array.isArray(courses) || courses.length === 0) return;
+        const map: Record<number, any[]> = {};
+        await Promise.all(courses.map(async (course, idx) => {
+          const { data, error } = await supabase
+            .from('notes')
+            .select('filename,user_id,id,created_at')
+            .eq('course_name', course.name)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            map[idx] = data;
+          } else {
+            map[idx] = [];
+          }
+        }));
+        setPublicNotesMap(map);
+      } catch (e) {
+        console.error('Failed to fetch public notes', e);
+      }
+    };
+    fetchPublicNotes();
   }, []);
 
   // Assistant UI + voice
@@ -169,23 +195,20 @@ const Courses = () => {
   };
   // Fetch note text from Supabase notes table
   const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
-    if (!userId) {
-      toast({ title: 'Not signed in', description: 'Please login to view notes.', variant: 'destructive' });
-      return;
-    }
     const course = courses[courseIdx];
     const note = course.notes[noteIdx];
     try {
+      // Fetch notes for this course/filename across all users
       const { data, error } = await supabase
         .from('notes')
         .select('id,note_text,text,created_at')
-        .match({ user_id: userId, course_name: course.name, filename: note });
+        .match({ course_name: course.name, filename: note });
       console.log('note fetch response', { data, error });
       if (error) {
         console.error('Error fetching note from Supabase:', error);
         setNoteText(`Could not fetch note text: ${error.message}`);
       } else if (!data || (Array.isArray(data) && data.length === 0)) {
-        console.warn('No note row found for', { userId, course: course.name, filename: note });
+        console.warn('No note row found for', { course: course.name, filename: note });
         setNoteText('No text extracted from this PDF.');
       } else {
         // data may be an array of rows; pick the most recent row that has content
@@ -212,11 +235,46 @@ const Courses = () => {
         }
         console.log('note row text length', textVal ? String(textVal).length : 0, 'chosen id', chosen?.id);
         setNoteText(textVal || 'No text extracted from this PDF.');
+        setNoteTitle(note);
+        // set owner if available (first row's user_id)
+        setNoteOwner((rows[0] && rows[0].user_id) || null);
       }
       setOpenNoteDialog({ courseIdx, noteIdx });
-    } catch {
+    } catch (err) {
+      console.error('Error connecting to Supabase.', err);
       setNoteText("Error connecting to Supabase.");
       setOpenNoteDialog({ courseIdx, noteIdx });
+    }
+  };
+
+  const viewPublicNote = async (courseIdx: number, filename: string) => {
+    try {
+      const course = courses[courseIdx];
+      const { data, error } = await supabase
+        .from('notes')
+        .select('id,user_id,note_text,text,created_at')
+        .match({ course_name: course.name, filename })
+        .order('created_at', { ascending: false });
+      if (error) {
+        console.error('Error fetching public note', error);
+        setNoteText('Could not fetch note.');
+      } else if (!data || data.length === 0) {
+        setNoteText('No text extracted from this PDF.');
+      } else {
+        const rows = Array.isArray(data) ? data : [data];
+        const chosen = rows.find(r => r.note_text && String(r.note_text).trim().length > 0)
+          || rows.find(r => r.text && String(r.text).trim().length > 0)
+          || rows[0];
+        const textVal = (chosen?.note_text && String(chosen.note_text).trim().length > 0) ? chosen.note_text : (chosen?.text || '');
+        setNoteText(textVal || 'No text extracted from this PDF.');
+        setNoteTitle(filename);
+        setNoteOwner((chosen && chosen.user_id) || null);
+      }
+      setOpenNoteDialog({ courseIdx, noteIdx: 0 });
+    } catch (err) {
+      console.error('Error viewing public note', err);
+      setNoteText('Error connecting to Supabase.');
+      setOpenNoteDialog({ courseIdx, noteIdx: 0 });
     }
   };
 
@@ -786,25 +844,44 @@ const Courses = () => {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-xs text-muted-foreground">
-                        No notes uploaded
+                      <p className="text-xs text-destructive font-semibold">
+                        No notes uploaded for this course.
                       </p>
                     )}
 
+                    {/* Public notes aggregated from all users */}
+                    <div className="mt-2">
+                      <div className="text-xs text-muted-foreground mb-1">Public Notes</div>
+                      <div className="flex flex-wrap gap-2">
+                        {(publicNotesMap[index] || []).length > 0 ? (
+                          (publicNotesMap[index] || []).map((pn: any, pIdx: number) => (
+                            <Badge key={pn.id || pIdx} variant="outline" className="text-xs cursor-pointer" onClick={() => viewPublicNote(index, pn.filename)}>
+                              {pn.filename} {pn.user_id ? `· by ${pn.user_id.slice(0,6)}` : ''}
+                            </Badge>
+                          ))
+                        ) : (
+                          <div className="text-xs text-muted-foreground">No public notes available</div>
+                        )}
+                      </div>
+                    </div>
+
                     {/* Note Text Dialog */}
-                    <Dialog open={!!openNoteDialog} onOpenChange={(open) => { if (!open) setOpenNoteDialog(null); }}>
+                    <Dialog open={!!openNoteDialog} onOpenChange={(open) => { if (!open) { setOpenNoteDialog(null); setNoteTitle(''); setNoteOwner(null); } }}>
                       <DialogContent className="max-w-2xl">
                         <DialogHeader>
                           <DialogTitle>
-                            {openNoteDialog ? courses[openNoteDialog.courseIdx].notes[openNoteDialog.noteIdx] : "Note"}
+                            {noteTitle || (openNoteDialog ? courses[openNoteDialog.courseIdx].notes[openNoteDialog.noteIdx] : "Note")}
                           </DialogTitle>
                           <DialogDescription>Preview of the extracted text from the uploaded PDF.</DialogDescription>
                         </DialogHeader>
+                        {noteOwner && (
+                          <div className="text-xs text-muted-foreground mb-2">Uploaded by: {noteOwner}</div>
+                        )}
                         <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded mb-4">
                           {noteText || "Loading..."}
                         </div>
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" onClick={() => setOpenNoteDialog(null)}>Close</Button>
+                          <Button variant="ghost" onClick={() => { setOpenNoteDialog(null); setNoteTitle(''); setNoteOwner(null); }}>Close</Button>
                           <Button variant="destructive" onClick={handleDeleteNote}>Delete</Button>
                         </div>
                       </DialogContent>

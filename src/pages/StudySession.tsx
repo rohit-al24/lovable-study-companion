@@ -24,6 +24,7 @@ const LoaderGif = () => (
   </span>
 );
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -409,27 +410,22 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     const fetchNotes = async () => {
       setNotesLoading(true);
       try {
-        // Get user id from supabase auth
-        const { data: userData } = await import("@/lib/supabaseClient").then(m => m.supabase.auth.getUser());
-        const uid = (userData as any)?.user?.id || null;
-        if (!uid || !subject) {
+        if (!subject) {
           setUserNotes([]);
           setSelectedNoteId(null);
           setNotesLoading(false);
           return;
         }
-        // Fetch notes for this user and course
-        const { data, error } = await import("@/lib/supabaseClient").then(m => m.supabase
+        // Fetch notes for this course across all users (public view)
+        const { data, error } = await supabase
           .from('notes')
           .select('*')
-          .eq('user_id', uid)
           .eq('course_name', subject)
-          .order('created_at', { ascending: false })
-        );
+          .order('created_at', { ascending: false });
         if (error) {
+          console.error('Error fetching notes:', error);
           setUserNotes([]);
           setSelectedNoteId(null);
-          alert('Error fetching notes: ' + error.message);
         } else if (data && data.length > 0) {
           setUserNotes(data);
           setSelectedNoteId(data[0].id);
@@ -438,9 +434,9 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
           setSelectedNoteId(null);
         }
       } catch (e) {
+        console.error('Error fetching notes:', e);
         setUserNotes([]);
         setSelectedNoteId(null);
-        alert('Error fetching notes: ' + (e as any).toString());
       } finally {
         setNotesLoading(false);
       }
@@ -448,9 +444,31 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     fetchNotes();
   }, [subject]);
 
+  // Debug logs to help identify production/runtime issues
+  useEffect(() => {
+    try {
+      // Don't log the anon key value, just presence
+      // eslint-disable-next-line no-console
+      console.log('StudySession: supabase client present=', !!supabase, 'VITE_SUPABASE_URL=', !!import.meta.env.VITE_SUPABASE_URL);
+      // eslint-disable-next-line no-console
+      console.log('StudySession: userNotes count=', userNotes.length, 'selectedNoteId=', selectedNoteId);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('StudySession debug logging failed', e);
+    }
+  }, [userNotes, selectedNoteId]);
+
   // Find selected note text
+  // Only use user-uploaded notes. Do NOT fall back to sample notes in production UI.
   const selectedNote = userNotes.find(n => n.id === selectedNoteId);
-  const notes = selectedNote?.note_text || (sampleNotes[subject as keyof typeof sampleNotes] || sampleNotes.Mathematics);
+  let notes = "";
+  if (selectedNote && selectedNote.note_text && String(selectedNote.note_text).trim().length > 0) {
+    notes = selectedNote.note_text;
+  } else if (userNotes.length > 0) {
+    // show first available note text if a selection is missing
+    const firstWithText = userNotes.find(n => n.note_text && String(n.note_text).trim().length > 0);
+    if (firstWithText) notes = firstWithText.note_text;
+  }
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
