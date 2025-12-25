@@ -10,7 +10,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     proxy: {
       "/api": {
-        target: "https://50a0dedcdb23.ngrok-free.app",
+        target: process.env.VITE_API_URL || "http://127.0.0.1:8000",
         changeOrigin: true,
         secure: true,
         rewrite: (path) => path.replace(/^\/api/, '/api')

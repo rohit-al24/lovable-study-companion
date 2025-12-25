@@ -3,4 +3,10 @@ cd "g:\STUDY APP\lovable-study-companion"; & ".\.venv\Scripts\python.exe" backen
 $env:PYTHON = (Resolve-Path ".\.venv\Scripts\python.exe").Path; python -m uvicorn backend.main:app --reload
 
 $env:PYTHON = (Resolve-Path ".\.venv\Scripts\python.exe").Path; python -m uvicorn backend.main:app --reload
-& ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app
+:: For offline/local backend (no internet):
+& ".\.venv\Scripts\Activate.ps1"
+& ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+:: For public access (ngrok):
+:: & ".\.venv\Scripts\Activate.ps1"
+:: & ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
