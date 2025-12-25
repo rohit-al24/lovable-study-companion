@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
+import { apiUrl } from "@/lib/api";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -56,7 +57,7 @@ const Dashboard = () => {
   const handleAssistantQuery = async (query: string) => {
     setAssistantMessage('Thinking...');
     try {
-      const resp = await fetch('/api/llm/ask', {
+      const resp = await fetch(apiUrl('/api/llm/ask'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: query, context: { courses } }),

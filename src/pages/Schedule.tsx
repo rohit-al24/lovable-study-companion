@@ -81,7 +81,8 @@ const Schedule = () => {
                     <Button onClick={async () => {
                       setUnitsLoading(true); setUnits([]); setScheduleResult([]); setQuiz(null);
                       try {
-                        const res = await fetch('/api/llm/units', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context: notesText, subject }) });
+                        const { apiUrl } = await import('@/lib/api');
+                        const res = await fetch(apiUrl('/api/llm/units'), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context: notesText, subject }) });
                         const data = await res.json();
                         // backend may return array directly or wrapped
                         const unitsData = Array.isArray(data) ? data : (data.units || data);
@@ -98,7 +99,7 @@ const Schedule = () => {
                       if (unitNames.length === 0) return;
                       setScheduleLoading(true); setScheduleResult([]);
                       try {
-                        const res = await fetch('/api/llm/schedule', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ units: unitNames, study_days: studyDays, exam_date: examDate }) });
+                        const res = await fetch(apiUrl('/api/llm/schedule'), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ units: unitNames, study_days: studyDays, exam_date: examDate }) });
                         const data = await res.json();
                         const sched = data.schedule || data;
                         setScheduleResult(sched || []);
@@ -130,7 +131,7 @@ const Schedule = () => {
                               const context = (typeof u === 'string' ? u : (u.summary ? `${u.unit}\n${u.summary}` : JSON.stringify(u)));
                               setQuizLoading(true); setQuiz(null);
                               try {
-                                const res = await fetch('/api/llm/quiz', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context, num_questions: 5, subject }) });
+                                const res = await fetch(apiUrl('/api/llm/quiz'), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context, num_questions: 5, subject }) });
                                 const data = await res.json();
                                 setQuiz(data);
                               } catch (e) {

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { apiUrl } from "@/lib/api";
 import { toast } from "@/components/ui/use-toast";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
@@ -111,7 +112,7 @@ const Courses = () => {
   const handleAssistantQuery = async (query: string) => {
     setAssistantMessage('Thinking...');
     try {
-      const resp = await fetch('/api/llm/ask', {
+      const resp = await fetch(apiUrl('/api/llm/ask'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: query, context: { courses } }),
@@ -297,7 +298,7 @@ const Courses = () => {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`http://localhost:8000/upload-pdf/${userId}/${courses[selectedCourseForUpload].name}`, {
+      const response = await fetch(apiUrl(`/upload-pdf/${userId}/${courses[selectedCourseForUpload].name}`), {
         method: 'POST',
         body: formData,
       });
@@ -381,7 +382,7 @@ const Courses = () => {
     if (!selectedCourseForQuestion || !question.trim()) return;
 
     try {
-      const response = await fetch(`http://localhost:8000/ask-question/${courses[selectedCourseForQuestion].name}`, {
+      const response = await fetch(apiUrl(`/ask-question/${courses[selectedCourseForQuestion].name}`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

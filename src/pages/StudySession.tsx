@@ -41,6 +41,7 @@ import {
   Mic,
 } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
+import { apiUrl } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
@@ -280,7 +281,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     const contextText = selectedNote?.note_text || notes;
     setQuizLoading(true);
     try {
-      const res = await fetch("/api/llm/quiz", {
+      const res = await fetch(apiUrl("/api/llm/quiz"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ context: contextText, subject, topic, num_questions: numQuestions }),
@@ -342,7 +343,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     ]);
 
     try {
-      const res = await fetch("/api/llm/ask", {
+      const res = await fetch(apiUrl("/api/llm/ask"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
