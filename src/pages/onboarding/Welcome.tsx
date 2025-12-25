@@ -36,7 +36,7 @@ const Welcome = () => {
         {/* Content */}
         <div className="text-center space-y-6">
           <h1 className="text-5xl font-bold text-foreground">
-            Welcome to Axios 💙
+            Welcome to Griffin Ai💙
           </h1>
           <p className="text-xl text-muted-foreground max-w-lg mx-auto">
             Your worthy AI companion that helps you study smarter, stay organized, and reach your academic goals.
