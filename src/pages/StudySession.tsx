@@ -68,7 +68,7 @@ const StudySession = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hi! I'm Axios, your study companion. Ask me anything about ${topic}!`,
+      content: `Hi! I'm Griffin, your study companion. Ask me anything about ${topic}!`,
     },
   ]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -837,8 +837,8 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
                   <div className="flex items-center gap-3">
                     <img src="/loader3.gif" alt="active" style={{ width: 40, height: 40, borderRadius: '50%' }} />
                     <div>
-                      <div className="font-semibold">Axios (Live)</div>
-                      <div className="text-sm text-muted-foreground">Say "Axios" or "Alexa" to ask a question</div>
+                      <div className="font-semibold">Griffin (Live)</div>
+                      <div className="text-sm text-muted-foreground">Say "Griffin" or "Alexa" to ask a question</div>
                     </div>
                   </div>
                 </div>
