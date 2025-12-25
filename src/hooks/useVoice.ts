@@ -11,11 +11,19 @@ export const useVoice = () => {
       utterance.pitch = 1.1;
       utterance.volume = 1;
       
-      // Try to get a friendly female voice
+      // Try to get a non-default voice (e.g., UK English Female, or first available)
       const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(
-        (v) => v.name.includes("Female") || v.name.includes("Samantha") || v.name.includes("Google")
+      let preferredVoice = voices.find(
+        (v) => v.name.includes("UK") && v.name.includes("Female")
       );
+      if (!preferredVoice) {
+        preferredVoice = voices.find(
+          (v) => v.name !== "default" && v.lang.startsWith("en")
+        );
+      }
+      if (!preferredVoice && voices.length > 0) {
+        preferredVoice = voices[0];
+      }
       if (preferredVoice) {
         utterance.voice = preferredVoice;
       }

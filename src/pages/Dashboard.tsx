@@ -1,4 +1,7 @@
+
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/lib/supabaseClient";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,36 +11,34 @@ import { useVoice } from "@/hooks/useVoice";
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { playClickSound } = useVoice();
-  const todaysTasks = [
-    {
-      subject: "Mathematics",
-      topic: "Calculus - Integration",
-      duration: "45 min",
-      difficulty: "Medium",
-      color: "info",
-    },
-    {
-      subject: "Physics",
-      topic: "Thermodynamics - Laws",
-      duration: "60 min",
-      difficulty: "Hard",
-      color: "warm",
-    },
-    {
-      subject: "Chemistry",
-      topic: "Organic Chemistry - Basics",
-      duration: "30 min",
-      difficulty: "Easy",
-      color: "success",
-    },
-  ];
 
-  const courses = [
-    { name: "Mathematics", progress: 65, units: "4/6" },
-    { name: "Physics", progress: 45, units: "3/6" },
-    { name: "Chemistry", progress: 80, units: "5/6" },
-  ];
+  const { playClickSound } = useVoice();
+  const [courses, setCourses] = useState<any[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchCourses = async () => {
+      setLoading(true);
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = (userData as any)?.user?.id || null;
+        setUserId(uid);
+        if (!uid) return;
+        const { data, error } = await supabase
+          .from('courses')
+          .select('*')
+          .eq('user_id', uid);
+        if (!error) setCourses(data || []);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchCourses();
+  }, []);
+
+  // Optionally, you can implement a real "Today's Study Plan" based on course data or leave it empty for now
+  const todaysTasks: any[] = [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-20 md:pb-8 md:pt-20">
@@ -78,33 +79,9 @@ const Dashboard = () => {
             </div>
 
             <div className="grid gap-4">
-              {todaysTasks.map((task, index) => (
-                <Card
-                  key={index}
-                  className="p-5 shadow-card hover:shadow-hover transition-all duration-300 hover:-translate-y-1 cursor-pointer"
-                  onClick={() => {
-                    playClickSound();
-                    navigate(`/study/${task.subject}?topic=${encodeURIComponent(task.topic)}`);
-                  }}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-2 flex-1">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full bg-${task.color}`} />
-                        <h3 className="font-semibold text-foreground">{task.subject}</h3>
-                        <span className={`text-xs px-2 py-1 rounded-full bg-${task.color}/20 text-${task.color}-foreground`}>
-                          {task.difficulty}
-                        </span>
-                      </div>
-                      <p className="text-sm text-muted-foreground pl-6">{task.topic}</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Clock className="w-4 h-4" />
-                      {task.duration}
-                    </div>
-                  </div>
-                </Card>
-              ))}
+              {todaysTasks.length === 0 && (
+                <div className="text-muted-foreground text-sm">No study plan for today.</div>
+              )}
             </div>
           </div>
 
@@ -147,16 +124,31 @@ const Dashboard = () => {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-foreground">Course Progress</h2>
             <div className="grid md:grid-cols-3 gap-4">
-              {courses.map((course, index) => (
-                <Card key={index} className="p-5 shadow-card">
-                  <h3 className="font-semibold mb-3">{course.name}</h3>
-                  <Progress value={course.progress} className="h-2 mb-2" />
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Units: {course.units}</span>
-                    <span className="font-medium text-primary">{course.progress}%</span>
+              {loading ? (
+                <div className="text-muted-foreground text-sm">Loading courses...</div>
+              ) : courses.length === 0 ? (
+                <div className="text-muted-foreground text-sm">No courses found.</div>
+              ) : (
+                courses.map((course, index) => (
+                  <div
+                    key={index}
+                    className="cursor-pointer"
+                    onClick={() => {
+                      playClickSound && playClickSound();
+                      navigate(`/study/${encodeURIComponent(course.name)}`);
+                    }}
+                  >
+                    <Card className="p-5 shadow-card hover:border-primary hover:shadow-lg transition-all">
+                      <h3 className="font-semibold mb-3">{course.name}</h3>
+                      <Progress value={course.progress} className="h-2 mb-2" />
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">Units: {course.units}</span>
+                        <span className="font-medium text-primary">{course.progress}%</span>
+                      </div>
+                    </Card>
                   </div>
-                </Card>
-              ))}
+                ))
+              )}
             </div>
           </div>
 

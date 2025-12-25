@@ -7,16 +7,21 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { ArrowLeft } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
+import { supabase } from "@/lib/supabaseClient";
+import { toast } from "@/components/ui/use-toast";
 
 const Profile = () => {
   const navigate = useNavigate();
   const { speak, playClickSound } = useVoice();
   const [formData, setFormData] = useState({
+    email: "",
+    password: "",
     name: "",
     college: "",
     degree: "",
     semester: "",
   });
+  const [loading, setLoading] = useState(false);
 
   const handleNameBlur = () => {
     if (formData.name.trim()) {
@@ -42,13 +47,71 @@ const Profile = () => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     playClickSound();
-    speak("Excellent! Let's set up your study preferences!");
-    setTimeout(() => {
-      navigate("/onboarding/preferences");
-    }, 500);
+    setLoading(true);
+    // Register user with Supabase Auth
+    try {
+      const { email, password, name, college, degree, semester } = formData;
+      if (!email || !password) {
+        toast({ title: 'Missing fields', description: 'Email and password are required.', variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+      // Email format validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        toast({ title: 'Invalid email', description: 'Please enter a valid email address.', variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+      // Password length validation
+      if (password.length < 6) {
+        toast({ title: 'Weak password', description: 'Password must be at least 6 characters.', variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({ email, password });
+      if (signUpError) {
+        let description = signUpError.message;
+        if (description.toLowerCase().includes('user already registered')) {
+          description += ' Please log in instead.';
+        }
+        toast({ title: 'Registration failed', description, variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+      const userId = signUpData?.user?.id;
+      if (!userId) {
+        toast({ title: 'Registration error', description: 'No user ID returned.', variant: 'destructive' });
+        setLoading(false);
+        return;
+      }
+      // Save profile to Supabase profiles table
+      const payload = {
+        id: userId,
+        user_id: userId,
+        email,
+        name,
+        college,
+        degree,
+        semester,
+      };
+      const { error } = await supabase.from('profiles').upsert(payload);
+      if (error) {
+        toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
+      } else {
+        speak("Excellent! Let's set up your study preferences!");
+        setTimeout(() => {
+          navigate("/onboarding/preferences");
+        }, 500);
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Could not register or save profile.', variant: 'destructive' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -80,13 +143,37 @@ const Profile = () => {
 
           <div className="space-y-6">
             <div className="text-center space-y-2">
-              <h2 className="text-3xl font-bold text-foreground">About You</h2>
+              <h2 className="text-3xl font-bold text-foreground">Setup Profile</h2>
               <p className="text-muted-foreground">
                 Let's get to know you better so we can personalize your experience
               </p>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  required
+                  className="rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="Create a password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                  required
+                  className="rounded-xl"
+                />
+              </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Your Name</Label>
                 <Input
@@ -99,7 +186,6 @@ const Profile = () => {
                   className="rounded-xl"
                 />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="college">College / School</Label>
                 <Input
@@ -112,7 +198,6 @@ const Profile = () => {
                   className="rounded-xl"
                 />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="degree">Degree / Class</Label>
                 <Input
@@ -125,7 +210,6 @@ const Profile = () => {
                   className="rounded-xl"
                 />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="semester">Current Semester</Label>
                 <Input
@@ -141,13 +225,13 @@ const Profile = () => {
                   className="rounded-xl"
                 />
               </div>
-
               <Button
                 type="submit"
                 size="lg"
                 className="w-full bg-primary hover:bg-primary/90 text-white rounded-full shadow-card transition-all duration-300 hover:shadow-hover"
+                disabled={loading}
               >
-                Continue
+                {loading ? 'Registering...' : 'Continue'}
               </Button>
             </form>
           </div>

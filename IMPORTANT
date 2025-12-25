@@ -1,1 +1,6 @@
 cd "g:\STUDY APP\lovable-study-companion"; & ".\.venv\Scripts\python.exe" backend\main.py
+
+$env:PYTHON = (Resolve-Path ".\.venv\Scripts\python.exe").Path; python -m uvicorn backend.main:app --reload
+
+$env:PYTHON = (Resolve-Path ".\.venv\Scripts\python.exe").Path; python -m uvicorn backend.main:app --reload
+& ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app

@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import { toast } from "@/components/ui/use-toast";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
@@ -12,6 +13,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import {
@@ -45,56 +47,8 @@ interface Course {
 }
 
 const Courses = () => {
-  const [courses, setCourses] = useState<Course[]>([
-    {
-      name: "Mathematics",
-      units: 6,
-      completed: 4,
-      progress: 65,
-      nextTopic: "Advanced Integration",
-      color: "info",
-      totalHours: 24,
-      hoursCompleted: 16,
-      exams: [{ subject: "Mid-term", date: "2025-01-15" }],
-      notes: ["calculus-notes.pdf"],
-    },
-    {
-      name: "Physics",
-      units: 6,
-      completed: 3,
-      progress: 45,
-      nextTopic: "Thermodynamics Laws",
-      color: "warm",
-      totalHours: 28,
-      hoursCompleted: 13,
-      exams: [],
-      notes: [],
-    },
-    {
-      name: "Chemistry",
-      units: 6,
-      completed: 5,
-      progress: 80,
-      nextTopic: "Electrochemistry",
-      color: "success",
-      totalHours: 20,
-      hoursCompleted: 16,
-      exams: [],
-      notes: [],
-    },
-    {
-      name: "Computer Science",
-      units: 5,
-      completed: 2,
-      progress: 35,
-      nextTopic: "Data Structures",
-      color: "primary",
-      totalHours: 30,
-      hoursCompleted: 11,
-      exams: [],
-      notes: [],
-    },
-  ]);
+  const [courses, setCourses] = useState<Course[]>([]);
+  // Fetch real course data from backend on mount
 
   const [isAddCourseOpen, setIsAddCourseOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<number | null>(null);
@@ -108,64 +62,193 @@ const Courses = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [openNoteDialog, setOpenNoteDialog] = useState<{courseIdx: number, noteIdx: number} | null>(null);
   const [noteText, setNoteText] = useState<string>("");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewText, setPreviewText] = useState<string>("");
+  const [previewFilename, setPreviewFilename] = useState<string>("");
+  const [previewCourseIdx, setPreviewCourseIdx] = useState<number | null>(null);
 
-  // Hardcoded user_id for demo
-  const userId = "demo-user";
-  // Fetch note text from backend
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = (userData as any)?.user?.id || null;
+        if (!uid) {
+          toast({ title: 'Not signed in', description: 'Please login or register.', variant: 'destructive' });
+          return;
+        }
+        setUserId(uid);
+
+        const { data, error } = await supabase
+          .from('courses')
+          .select('*')
+          .eq('user_id', uid);
+        if (error) {
+          toast({
+            title: "Failed to fetch courses",
+            description: error.message,
+            variant: "destructive",
+          });
+        } else {
+          setCourses(data || []);
+        }
+      } catch (err) {
+        toast({ title: 'Error', description: 'Could not initialize user.', variant: 'destructive' });
+      }
+    };
+    init();
+  }, []);
+  // Fetch note text from Supabase notes table
   const handleNoteClick = async (courseIdx: number, noteIdx: number) => {
+    if (!userId) {
+      toast({ title: 'Not signed in', description: 'Please login to view notes.', variant: 'destructive' });
+      return;
+    }
     const course = courses[courseIdx];
     const note = course.notes[noteIdx];
     try {
-      const res = await fetch(`http://localhost:8000/notes/${userId}/${course.name}`);
-      if (res.ok) {
-        const notes = await res.json();
-        const found = notes.find((n: any) => n.filename === note);
-        setNoteText(found ? found.text : "No text extracted from this PDF.");
-        setOpenNoteDialog({courseIdx, noteIdx});
+      const { data, error } = await supabase
+        .from('notes')
+        .select('id,note_text,text,created_at')
+        .match({ user_id: userId, course_name: course.name, filename: note });
+      console.log('note fetch response', { data, error });
+      if (error) {
+        console.error('Error fetching note from Supabase:', error);
+        setNoteText(`Could not fetch note text: ${error.message}`);
+      } else if (!data || (Array.isArray(data) && data.length === 0)) {
+        console.warn('No note row found for', { userId, course: course.name, filename: note });
+        setNoteText('No text extracted from this PDF.');
       } else {
-        setNoteText("Could not fetch note text.");
-        setOpenNoteDialog({courseIdx, noteIdx});
+        // data may be an array of rows; pick the most recent row that has content
+        const rows = Array.isArray(data) ? data : [data];
+        // prefer rows with note_text, then legacy text
+        let chosen = rows.find(r => r.note_text && String(r.note_text).trim().length > 0)
+          || rows.find(r => r.text && String(r.text).trim().length > 0)
+          || rows[rows.length - 1];
+        const textVal = (chosen?.note_text && String(chosen.note_text).trim().length > 0)
+          ? chosen.note_text
+          : (chosen?.text || '');
+        // Backfill this specific row's note_text from legacy text if needed
+        if (chosen && (!chosen.note_text || String(chosen.note_text).trim().length === 0) && chosen.text) {
+          try {
+            const { error: backfillError } = await supabase
+              .from('notes')
+              .update({ note_text: chosen.text })
+              .eq('id', chosen.id);
+            if (backfillError) console.warn('Failed to backfill note_text for id', chosen.id, backfillError);
+            else console.log('Backfilled note_text from legacy text column for id', chosen.id);
+          } catch (e) {
+            console.warn('Backfill attempt threw', e);
+          }
+        }
+        console.log('note row text length', textVal ? String(textVal).length : 0, 'chosen id', chosen?.id);
+        setNoteText(textVal || 'No text extracted from this PDF.');
       }
+      setOpenNoteDialog({ courseIdx, noteIdx });
     } catch {
-      setNoteText("Error connecting to backend.");
-      setOpenNoteDialog({courseIdx, noteIdx});
+      setNoteText("Error connecting to Supabase.");
+      setOpenNoteDialog({ courseIdx, noteIdx });
     }
   };
 
-  const addCourse = () => {
+  const addCourse = async () => {
+    if (!userId) {
+      toast({ title: 'Not signed in', description: 'Please login to add courses.', variant: 'destructive' });
+      return;
+    }
     if (newCourse.name) {
-      setCourses([
-        ...courses,
-        {
-          ...newCourse,
-          completed: 0,
-          progress: 0,
-          nextTopic: "Getting Started",
-          color: ["info", "warm", "success", "primary"][courses.length % 4],
-          totalHours: newCourse.units * 4,
-          hoursCompleted: 0,
-          exams: [],
-          notes: [],
-        },
-      ]);
-      setNewCourse({ name: "", units: 6 });
-      setIsAddCourseOpen(false);
+      const courseToInsert = {
+        ...newCourse,
+        user_id: userId,
+        completed: 0,
+        progress: 0,
+        nextTopic: "Getting Started",
+        color: ["info", "warm", "success", "primary"][courses.length % 4],
+        totalHours: newCourse.units * 4,
+        hoursCompleted: 0,
+        exams: [],
+        notes: [],
+      };
+      const { error } = await supabase.from('courses').insert([courseToInsert]);
+      if (error) {
+        toast({
+          title: "Failed to add course",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        setNewCourse({ name: "", units: 6 });
+        setIsAddCourseOpen(false);
+        // Refresh courses from Supabase
+        const { data } = await supabase
+          .from('courses')
+          .select('*')
+          .eq('user_id', userId);
+        setCourses(data || []);
+      }
     }
   };
 
-  const addExamToCourse = (courseIndex: number) => {
+  const addExamToCourse = async (courseIndex: number) => {
+    if (!userId) {
+      toast({ title: 'Not signed in', description: 'Please login to add exams.', variant: 'destructive' });
+      return;
+    }
     if (newExam.subject && newExam.date) {
       const updated = [...courses];
       updated[courseIndex].exams.push({ ...newExam });
-      setCourses(updated);
-      setNewExam({ subject: "", date: "" });
+      // Save updated exams to Supabase
+      const { error } = await supabase
+        .from('courses')
+        .update({ exams: updated[courseIndex].exams })
+        .eq('user_id', userId)
+        .eq('name', updated[courseIndex].name);
+      if (error) {
+        toast({
+          title: "Failed to add exam",
+          description: error.message,
+          variant: "destructive",
+        });
+      } else {
+        setNewExam({ subject: "", date: "" });
+        // Refresh courses from Supabase
+        const { data } = await supabase
+          .from('courses')
+          .select('*')
+          .eq('user_id', userId);
+        setCourses(data || []);
+      }
     }
   };
 
-  const removeExam = (courseIndex: number, examIndex: number) => {
+  const removeExam = async (courseIndex: number, examIndex: number) => {
+    if (!userId) {
+      toast({ title: 'Not signed in', description: 'Please login to modify exams.', variant: 'destructive' });
+      return;
+    }
     const updated = [...courses];
     updated[courseIndex].exams.splice(examIndex, 1);
-    setCourses(updated);
+    // Save updated exams to Supabase
+    const { error } = await supabase
+      .from('courses')
+      .update({ exams: updated[courseIndex].exams })
+      .eq('user_id', userId)
+      .eq('name', updated[courseIndex].name);
+    if (error) {
+      toast({
+        title: "Failed to remove exam",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      // Refresh courses from Supabase
+      const { data } = await supabase
+        .from('courses')
+        .select('*')
+        .eq('user_id', userId);
+      setCourses(data || []);
+    }
   };
 
   const handleFileUpload = (courseIndex: number) => {
@@ -176,6 +259,11 @@ const Courses = () => {
   const onFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || selectedCourseForUpload === null) return;
+
+    if (!userId) {
+      toast({ title: 'Not signed in', description: 'Please login to upload PDFs.', variant: 'destructive' });
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', file);
@@ -188,19 +276,12 @@ const Courses = () => {
 
       if (response.ok) {
         const result = await response.json();
-        // Update the notes with the filename
-        const updatedCourses = [...courses];
-        updatedCourses[selectedCourseForUpload].notes.push(result.filename);
-        setCourses(updatedCourses);
-        toast({
-          title: `PDF uploaded for ${courses[selectedCourseForUpload].name}`,
-          description: result.summary ? (
-            <div>
-              <div className="font-semibold mb-1">Summary:</div>
-              <div className="max-h-32 overflow-y-auto text-xs whitespace-pre-line">{result.summary}</div>
-            </div>
-          ) : "PDF uploaded successfully!",
-        });
+        // Show preview dialog with extracted text/summary before saving to DB
+        const previewContent = result.text && result.text.trim().length > 0 ? result.text : (result.summary || '');
+        setPreviewText(previewContent);
+        setPreviewFilename(result.filename);
+        setPreviewCourseIdx(selectedCourseForUpload);
+        setPreviewOpen(true);
       } else {
         toast({
           title: 'Upload failed',
@@ -221,6 +302,51 @@ const Courses = () => {
     // Reset the input
     event.target.value = '';
     setSelectedCourseForUpload(null);
+  };
+
+  const savePreviewToDB = async () => {
+    if (!userId || previewCourseIdx === null) return;
+    const course = courses[previewCourseIdx];
+    try {
+      const { data: noteInsertData, error: noteError } = await supabase
+        .from('notes')
+        .insert([
+          {
+            user_id: userId,
+            course_name: course.name,
+            filename: previewFilename,
+            note_text: previewText || '',
+          },
+        ])
+        .select('id,user_id,course_name,filename,note_text');
+      console.log('note insert response (from preview save)', { noteInsertData, noteError });
+      if (noteError) {
+        toast({ title: 'Failed to save note', description: noteError.message, variant: 'destructive' });
+        return;
+      }
+      // Update course notes list
+      const updatedNotes = [...course.notes, previewFilename];
+      const { error } = await supabase
+        .from('courses')
+        .update({ notes: updatedNotes })
+        .eq('user_id', userId)
+        .eq('name', course.name);
+      if (error) {
+        toast({ title: 'Failed to update notes', description: error.message, variant: 'destructive' });
+        return;
+      }
+      // Refresh courses
+      const { data } = await supabase.from('courses').select('*').eq('user_id', userId);
+      setCourses(data || []);
+      toast({ title: `Note saved for ${course.name}`, description: 'Extracted text saved to your notes.' });
+      setPreviewOpen(false);
+      setPreviewText('');
+      setPreviewFilename('');
+      setPreviewCourseIdx(null);
+    } catch (err: any) {
+      toast({ title: 'Error', description: 'Could not save note.', variant: 'destructive' });
+      console.error('Error saving preview to DB:', err);
+    }
   };
 
   const askQuestion = async () => {
@@ -272,6 +398,7 @@ const Courses = () => {
                 <DialogContent className="rounded-2xl">
                   <DialogHeader>
                     <DialogTitle>Add New Course</DialogTitle>
+                    <DialogDescription>Provide a name and unit count to create a course.</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
@@ -443,6 +570,7 @@ const Courses = () => {
                         <DialogContent className="rounded-2xl">
                           <DialogHeader>
                             <DialogTitle>Add Exam for {course.name}</DialogTitle>
+                            <DialogDescription>Enter the exam name and date to add it to this course.</DialogDescription>
                           </DialogHeader>
                           <div className="space-y-4 pt-4">
                             <div className="space-y-2">
@@ -543,6 +671,7 @@ const Courses = () => {
                           <DialogContent className="rounded-2xl">
                             <DialogHeader>
                               <DialogTitle>Ask about {course.name}</DialogTitle>
+                              <DialogDescription>Ask an AI-powered question about your uploaded notes for this course.</DialogDescription>
                             </DialogHeader>
                             <div className="space-y-4 pt-4">
                               <div className="space-y-2">
@@ -600,9 +729,27 @@ const Courses = () => {
                           <DialogTitle>
                             {openNoteDialog ? courses[openNoteDialog.courseIdx].notes[openNoteDialog.noteIdx] : "Note"}
                           </DialogTitle>
+                          <DialogDescription>Preview of the extracted text from the uploaded PDF.</DialogDescription>
                         </DialogHeader>
                         <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded">
                           {noteText || "Loading..."}
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    {/* Preview & Save Dialog (shown immediately after upload) */}
+                    <Dialog open={previewOpen} onOpenChange={(open) => { if (!open) { setPreviewOpen(false); setPreviewText(''); setPreviewFilename(''); setPreviewCourseIdx(null); } }}>
+                      <DialogContent className="max-w-2xl">
+                        <DialogHeader>
+                          <DialogTitle>Preview Extracted Text</DialogTitle>
+                          <DialogDescription>Review the extracted text below and click Save to persist it to your notes.</DialogDescription>
+                        </DialogHeader>
+                        <div className="max-h-[60vh] overflow-y-auto whitespace-pre-line text-xs bg-muted p-4 rounded mb-4">
+                          {previewText || 'No text extracted from this PDF.'}
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button variant="ghost" onClick={() => { setPreviewOpen(false); setPreviewText(''); setPreviewFilename(''); setPreviewCourseIdx(null); }}>Cancel</Button>
+                          <Button onClick={savePreviewToDB} className="bg-primary hover:bg-primary/90 text-primary-foreground rounded-full">Save</Button>
                         </div>
                       </DialogContent>
                     </Dialog>

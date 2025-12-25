@@ -1,4 +1,28 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+// Loader using loader.gif from public
+const LoaderGif = () => (
+  <span style={{
+    width: 64,
+    height: 64,
+    display: 'inline-block',
+    borderRadius: '50%',
+    overflow: 'hidden',
+    background: '#fff',
+    boxShadow: '0 0 0 2px #e0e0e0',
+  }}>
+    <img
+      src="/loader3.gif"
+      alt="Loading..."
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'cover',
+        borderRadius: '50%',
+        display: 'block',
+      }}
+    />
+  </span>
+);
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -14,6 +38,7 @@ import {
   Send,
   Trophy,
   Star,
+  Mic,
 } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
 
@@ -39,10 +64,36 @@ const StudySession = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hi! I'm here to help you with ${subject}. Ask me anything about ${topic}!`,
+      content: `Hi! I'm Axios, your study companion. Ask me anything about ${topic}!`,
     },
   ]);
+  const [chatLoading, setChatLoading] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
+  const [isListening, setIsListening] = useState(false);
+    // Voice recognition for mic button
+    const startListening = () => {
+      if (!('webkitSpeechRecognition' in window)) {
+        alert('Speech recognition not supported in this browser.');
+        return;
+      }
+      const recognition = new (window as any).webkitSpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      setIsListening(true);
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInputMessage(transcript);
+        setIsListening(false);
+        // If user says "Lovable" at start, auto-send
+        if (transcript.trim().toLowerCase().startsWith('lovable')) {
+          setTimeout(() => handleSendMessage(), 100);
+        }
+      };
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      recognition.start();
+    };
   const [quizStarted, setQuizStarted] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [score, setScore] = useState(0);
@@ -107,58 +158,44 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
 3. Name substituents with position numbers`,
   };
 
-  const quizQuestions: QuizQuestion[] = [
-    {
-      question: `What is the main concept of ${topic}?`,
-      options: [
-        "Understanding basic principles",
-        "Memorizing formulas only",
-        "Skipping fundamentals",
-        "Random guessing",
-      ],
-      correct: 0,
-    },
-    {
-      question: `Which approach is best for studying ${subject}?`,
-      options: [
-        "Never practice",
-        "Practice regularly with examples",
-        "Only read theory",
-        "Ignore difficult topics",
-      ],
-      correct: 1,
-    },
-    {
-      question: `What should you do after solving a ${subject} problem?`,
-      options: [
-        "Move on immediately",
-        "Delete your work",
-        "Verify your answer",
-        "Skip checking",
-      ],
-      correct: 2,
-    },
-    {
-      question: `How can you improve your understanding of ${topic}?`,
-      options: [
-        "Never ask questions",
-        "Avoid practice problems",
-        "Only study before exams",
-        "Draw diagrams and visualize concepts",
-      ],
-      correct: 3,
-    },
-    {
-      question: `What's the best time management strategy for ${subject}?`,
-      options: [
-        "Study consistently every day",
-        "Cram everything last minute",
-        "Never review",
-        "Skip difficult chapters",
-      ],
-      correct: 0,
-    },
-  ];
+  const generateQuiz = async (numQuestions = 5) => {
+    const contextText = selectedNote?.note_text || notes;
+    setQuizLoading(true);
+    try {
+      const res = await fetch("/api/llm/quiz", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ context: contextText, subject, topic, num_questions: numQuestions }),
+      });
+      if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || "LLM quiz generation failed");
+      }
+      const data = await res.json();
+      if (data?.questions && Array.isArray(data.questions)) {
+        const mapped: QuizQuestion[] = data.questions.map((q: any) => ({
+          question: q.question || "",
+          options: q.options || [],
+          correct: typeof q.answer === 'number' ? q.answer : 0,
+        }));
+        setQuizQuestions(mapped);
+        setQuizStarted(false);
+        setQuizComplete(false);
+        setCurrentQuestion(0);
+        setActiveTab("quiz");
+      } else {
+        throw new Error("Invalid quiz format from LLM");
+      }
+    } catch (e) {
+      console.error(e);
+      setMessages((prev) => [...prev, { role: "assistant", content: "Failed to generate quiz: " + (e as any).toString() }]);
+    } finally {
+      setQuizLoading(false);
+    }
+  };
+
+  const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
+  const [quizLoading, setQuizLoading] = useState(false);
 
   useEffect(() => {
     // Load progress from localStorage
@@ -168,27 +205,61 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     }
   }, [subject]);
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputMessage.trim()) return;
 
     const userMessage: Message = { role: "user", content: inputMessage };
     setMessages((prev) => [...prev, userMessage]);
     setInputMessage("");
+    setChatLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        `Great question about ${topic}! Let me explain...`,
-        `That's an important concept in ${subject}. Here's how it works...`,
-        `I'd be happy to help you understand ${topic} better. The key thing to remember is...`,
-        `Excellent curiosity! In ${subject}, this concept relates to...`,
-      ];
-      const response: Message = {
-        role: "assistant",
-        content: responses[Math.floor(Math.random() * responses.length)],
-      };
-      setMessages((prev) => [...prev, response]);
-    }, 1000);
+    // Use the selected note's text as context for the LLM
+    const contextText = selectedNote?.note_text || notes;
+
+    // Show Siri loader as a temporary assistant message
+    setMessages((prev) => [
+      ...prev,
+      { role: "assistant", content: "__LOADING__" },
+    ]);
+
+    try {
+      const res = await fetch("/api/llm/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: inputMessage,
+          context: contextText,
+          subject: subject || "",
+          topic,
+        }),
+      });
+      let answer = "";
+      if (!res.ok) {
+        // Optionally, you can define getExcerpt here if you want to show an excerpt from notes
+        answer = "Sorry, there was a problem getting an answer from the study assistant.";
+      } else {
+        const data = await res.json();
+        answer = data.answer;
+      }
+      setMessages((prev) => {
+        // Remove the last __LOADING__ message and add the real answer
+        const msgs = prev.slice();
+        const idx = msgs.findIndex((m) => m.content === "__LOADING__");
+        if (idx !== -1) msgs.splice(idx, 1);
+        // Speak the reply aloud
+        if (answer) speak(answer);
+        return [...msgs, { role: "assistant", content: answer }];
+      });
+    } catch (err) {
+      setMessages((prev) => {
+        const msgs = prev.slice();
+        const idx = msgs.findIndex((m) => m.content === "__LOADING__");
+        if (idx !== -1) msgs.splice(idx, 1);
+        return [...msgs, { role: "assistant", content: "Sorry, there was a problem getting an answer from the study assistant." }];
+      });
+    } finally {
+      setChatLoading(false);
+    }
   };
 
   const handleStartQuiz = () => {
@@ -241,7 +312,55 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
     }, 1500);
   };
 
-  const notes = sampleNotes[subject as keyof typeof sampleNotes] || sampleNotes.Mathematics;
+  // State for user's uploaded notes
+  const [userNotes, setUserNotes] = useState<any[]>([]);
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
+  const [notesLoading, setNotesLoading] = useState(true);
+
+  // Fetch notes for this subject (course)
+  useEffect(() => {
+    const fetchNotes = async () => {
+      setNotesLoading(true);
+      try {
+        // Get user id from supabase auth
+        const { data: userData } = await import("@/lib/supabaseClient").then(m => m.supabase.auth.getUser());
+        const uid = (userData as any)?.user?.id || null;
+        if (!uid || !subject) return;
+        // Fetch notes for this user and course
+        const { data, error } = await import("@/lib/supabaseClient").then(m => m.supabase
+          .from('notes')
+          .select('*')
+          .eq('user_id', uid)
+          .eq('course_name', subject)
+          .order('created_at', { ascending: false })
+        );
+        if (!error && data) {
+          setUserNotes(data);
+          if (data.length > 0) setSelectedNoteId(data[0].id);
+        }
+      } finally {
+        setNotesLoading(false);
+      }
+    };
+    fetchNotes();
+  }, [subject]);
+
+  // Find selected note text
+  const selectedNote = userNotes.find(n => n.id === selectedNoteId);
+  const notes = selectedNote?.note_text || (sampleNotes[subject as keyof typeof sampleNotes] || sampleNotes.Mathematics);
+
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== "chat") return;
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    try {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } catch (e) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, activeTab]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-secondary/10 to-info/10 pb-8">
@@ -297,6 +416,29 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
           {/* Content */}
           {activeTab === "notes" && (
             <Card className="p-6 shadow-card">
+              {/* Note selector buttons */}
+              {notesLoading ? (
+                <div className="mb-4 text-muted-foreground">Loading notes...</div>
+              ) : userNotes.length > 0 ? (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {userNotes.map((note) => (
+                    <Button
+                      key={note.id}
+                      variant={selectedNoteId === note.id ? "default" : "outline"}
+                      size="sm"
+                      className="rounded-full"
+                      onClick={() => {
+                        playClickSound();
+                        setSelectedNoteId(note.id);
+                      }}
+                    >
+                      {note.title || note.filename || `Note ${note.id.slice(-4)}`}
+                    </Button>
+                  ))}
+                </div>
+              ) : (
+                <div className="mb-4 text-muted-foreground">No uploaded notes found for this course. Showing sample notes.</div>
+              )}
               <div className="prose prose-sm max-w-none">
                 {notes.split("\n").map((line, i) => {
                   if (line.startsWith("# ")) {
@@ -344,23 +486,32 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
                   return null;
                 })}
               </div>
-              <Button
-                onClick={() => {
-                  playClickSound();
-                  setActiveTab("chat");
-                }}
-                className="mt-6 rounded-full gap-2"
-              >
-                <MessageCircle className="w-4 h-4" />
-                Have Questions? Ask Lovable
-              </Button>
+              <div className="mt-6 flex gap-3">
+                <Button
+                  onClick={() => {
+                    playClickSound();
+                    setActiveTab("chat");
+                  }}
+                  className="rounded-full gap-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Have Questions? Ask Lovable
+                </Button>
+                <Button
+                  onClick={() => generateQuiz(5)}
+                  disabled={quizLoading}
+                  className="rounded-full gap-2"
+                >
+                  {quizLoading ? "Generating..." : "Generate Quiz"}
+                </Button>
+              </div>
             </Card>
           )}
 
           {activeTab === "chat" && (
             <Card className="p-6 shadow-card">
               <div className="space-y-4 h-[400px] flex flex-col">
-                <div className="flex-1 overflow-y-auto space-y-4 pr-2">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto space-y-4 pr-2">
                   {messages.map((msg, i) => (
                     <div
                       key={i}
@@ -373,7 +524,7 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
                             : "bg-muted"
                         }`}
                       >
-                        {msg.content}
+                        {msg.content === "__LOADING__" ? <LoaderGif /> : msg.content}
                       </div>
                     </div>
                   ))}
@@ -393,6 +544,14 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
                   >
                     <Send className="w-4 h-4" />
                   </Button>
+                  <Button
+                    onClick={startListening}
+                    size="icon"
+                    className={`rounded-full ${isListening ? 'bg-primary/20' : ''}`}
+                    title="Speak to Lovable"
+                  >
+                    <Mic className="w-4 h-4" />
+                  </Button>
                 </div>
               </div>
             </Card>
@@ -402,19 +561,33 @@ ${topic} is a fundamental concept in Mathematics that helps us understand comple
             <Card className="p-6 shadow-card">
               {!quizStarted && !quizComplete ? (
                 <div className="text-center space-y-6 py-8">
-                  <div className="bg-gradient-to-br from-primary/20 to-warm/20 p-8 rounded-full w-24 h-24 mx-auto flex items-center justify-center">
-                    <Trophy className="w-12 h-12 text-primary" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-bold mb-2">Ready for a Quiz?</h3>
-                    <p className="text-muted-foreground">
-                      Test your knowledge of {topic} with {quizQuestions.length} questions
-                    </p>
-                  </div>
-                  <Button onClick={handleStartQuiz} className="rounded-full gap-2">
-                    <Star className="w-4 h-4" />
-                    Start Quiz
-                  </Button>
+                  {quizQuestions.length === 0 ? (
+                    <div className="space-y-4">
+                      <h3 className="text-xl font-semibold">No quiz generated yet</h3>
+                      <p className="text-muted-foreground">Use the Notes tab to generate a quiz from your uploaded notes.</p>
+                      <div className="flex gap-2 justify-center">
+                        <Button onClick={() => generateQuiz(5)} className="rounded-full">Generate 5</Button>
+                        <Button onClick={() => generateQuiz(10)} className="rounded-full">Generate 10</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center space-y-6 py-8">
+                      <div className="bg-gradient-to-br from-primary/20 to-warm/20 p-8 rounded-full w-24 h-24 mx-auto flex items-center justify-center">
+                        <Trophy className="w-12 h-12 text-primary" />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-bold mb-2">Ready for a Quiz?</h3>
+                        <p className="text-muted-foreground">Test your knowledge of {topic} with {quizQuestions.length} questions</p>
+                      </div>
+                      <div className="flex gap-2 justify-center">
+                        <Button onClick={handleStartQuiz} className="rounded-full gap-2">
+                          <Star className="w-4 h-4" />
+                          Start Quiz
+                        </Button>
+                        <Button onClick={() => generateQuiz(quizQuestions.length)} className="rounded-full">Regenerate</Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : quizComplete ? (
                 <div className="text-center space-y-6 py-8">

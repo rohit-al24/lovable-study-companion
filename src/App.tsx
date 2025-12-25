@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Welcome from "./pages/onboarding/Welcome";
 import Profile from "./pages/onboarding/Profile";
 import Preferences from "./pages/onboarding/Preferences";
+import Login from "./pages/onboarding/Login";
 import Finish from "./pages/onboarding/Finish";
 import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
@@ -28,6 +29,7 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/welcome" element={<Welcome />} />
           <Route path="/onboarding/profile" element={<Profile />} />
+          <Route path="/onboarding/login" element={<Login />} />
           <Route path="/onboarding/preferences" element={<Preferences />} />
           
           <Route path="/onboarding/finish" element={<Finish />} />

@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { useState } from "react";
 
 const Schedule = () => {
   const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -25,6 +26,26 @@ const Schedule = () => {
     { date: "Jun 2", subject: "Chemistry", time: "9:00 AM" },
   ];
 
+  // Map semantic color keys to explicit Tailwind classes (avoids dynamic class scanning issues)
+  const colorMap: Record<string, string> = {
+    info: "bg-info/10 border-info/20",
+    warm: "bg-warm/10 border-warm/20",
+    success: "bg-success/10 border-success/20",
+    primary: "bg-primary/10 border-primary/20",
+  };
+
+  // Study planner state
+  const [notesText, setNotesText] = useState("");
+  const [subject, setSubject] = useState("");
+  const [units, setUnits] = useState<Array<any>>([]);
+  const [unitsLoading, setUnitsLoading] = useState(false);
+  const [scheduleResult, setScheduleResult] = useState<Array<any>>([]);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [studyDays, setStudyDays] = useState<number>(7);
+  const [examDate, setExamDate] = useState<string>("");
+  const [quiz, setQuiz] = useState<any>(null);
+  const [quizLoading, setQuizLoading] = useState(false);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-info/10 to-secondary/10 pb-20 md:pb-8 md:pt-20">
       <Navigation />
@@ -42,6 +63,124 @@ const Schedule = () => {
               Auto-Adjust
             </Button>
           </div>
+
+          {/* Study Planner */}
+          <Card className="p-4 shadow-card">
+            <div className="space-y-4">
+              <h2 className="text-xl font-semibold">Study Planner (Notes → Units → Schedule → Quiz)</h2>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm">Subject</label>
+                  <input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full p-2 border rounded" placeholder="e.g., Physics" />
+
+                  <label className="text-sm">Paste notes or long text</label>
+                  <textarea value={notesText} onChange={(e) => setNotesText(e.target.value)} rows={8} className="w-full p-2 border rounded" placeholder="Paste extracted PDF text or notes here" />
+
+                  <div className="flex gap-2">
+                    <Button onClick={async () => {
+                      setUnitsLoading(true); setUnits([]); setScheduleResult([]); setQuiz(null);
+                      try {
+                        const res = await fetch('/api/llm/units', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context: notesText, subject }) });
+                        const data = await res.json();
+                        // backend may return array directly or wrapped
+                        const unitsData = Array.isArray(data) ? data : (data.units || data);
+                        setUnits(unitsData || []);
+                      } catch (e) {
+                        console.error(e);
+                        setUnits([]);
+                      } finally { setUnitsLoading(false); }
+                    }} className="bg-primary text-white">{unitsLoading ? 'Analyzing...' : 'Analyze Units'}</Button>
+
+                    <Button onClick={async () => {
+                      // prepare simple units array of strings
+                      const unitNames = units.map((u:any) => (typeof u === 'string' ? u : (u.unit || u.title || u.name || JSON.stringify(u))));
+                      if (unitNames.length === 0) return;
+                      setScheduleLoading(true); setScheduleResult([]);
+                      try {
+                        const res = await fetch('/api/llm/schedule', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ units: unitNames, study_days: studyDays, exam_date: examDate }) });
+                        const data = await res.json();
+                        const sched = data.schedule || data;
+                        setScheduleResult(sched || []);
+                      } catch (e) {
+                        console.error(e);
+                        setScheduleResult([]);
+                      } finally { setScheduleLoading(false); }
+                    }} className="bg-emerald-600 text-white">{scheduleLoading ? 'Generating...' : 'Generate Schedule'}</Button>
+
+                    <input type="number" min={1} value={studyDays} onChange={(e) => setStudyDays(Number(e.target.value))} className="w-24 p-2 border rounded" />
+                    <input type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} className="p-2 border rounded" />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="font-medium">Detected Units</h3>
+                  <div className="space-y-2 max-h-60 overflow-auto">
+                    {units.length === 0 && <p className="text-sm text-muted-foreground">No units detected yet.</p>}
+                    {units.map((u:any, idx:number) => (
+                      <Card key={idx} className="p-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="font-semibold">{typeof u === 'string' ? u : (u.unit || u.title || `Unit ${idx+1}`)}</p>
+                            <p className="text-sm text-muted-foreground">{typeof u === 'string' ? '' : (u.summary || '')}</p>
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <Button size="sm" onClick={async () => {
+                              // generate quiz for this unit
+                              const context = (typeof u === 'string' ? u : (u.summary ? `${u.unit}\n${u.summary}` : JSON.stringify(u)));
+                              setQuizLoading(true); setQuiz(null);
+                              try {
+                                const res = await fetch('/api/llm/quiz', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context, num_questions: 5, subject }) });
+                                const data = await res.json();
+                                setQuiz(data);
+                              } catch (e) {
+                                console.error(e);
+                                setQuiz(null);
+                              } finally { setQuizLoading(false); }
+                            }}>Generate Quiz</Button>
+                          </div>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {scheduleResult && scheduleResult.length > 0 && (
+                <div>
+                  <h3 className="font-medium mt-2">Generated Schedule</h3>
+                  <div className="mt-2 space-y-2">
+                    {scheduleResult.map((d:any, i:number) => (
+                      <Card key={i} className="p-3">
+                        <p className="font-semibold">Day {d.day ?? i+1}</p>
+                        <p className="text-sm text-muted-foreground">{Array.isArray(d.units) ? d.units.join(', ') : JSON.stringify(d.units)}</p>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {quizLoading && <p>Generating quiz...</p>}
+              {quiz && (
+                <div>
+                  <h3 className="font-medium mt-2">Quiz</h3>
+                  <div className="space-y-3 mt-2">
+                    {(quiz.questions || []).map((q:any, i:number) => (
+                      <Card key={i} className="p-3">
+                        <p className="font-semibold">{i+1}. {q.question}</p>
+                        <ul className="list-disc list-inside text-sm mt-2">
+                          {(q.options || []).map((opt:string, j:number) => (
+                            <li key={j} className={q.answer === j ? 'font-semibold text-foreground' : ''}>{opt}</li>
+                          ))}
+                        </ul>
+                        {q.explanation && <p className="text-xs text-muted-foreground mt-2">Explanation: {q.explanation}</p>}
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Card>
 
           {/* Month Navigation */}
           <Card className="p-4 shadow-card">
@@ -71,9 +210,9 @@ const Schedule = () => {
                     .filter((item) => item.day === index)
                     .map((item, idx) => (
                       <Card
-                        key={idx}
-                        className={`p-3 shadow-card bg-${item.color}/10 border-${item.color}/20 hover:shadow-hover transition-all duration-300 cursor-pointer`}
-                      >
+                          key={idx}
+                          className={`p-3 shadow-card ${colorMap[item.color] || "bg-card"} hover:shadow-hover transition-all duration-300 cursor-pointer`}
+                        >
                         <p className="text-xs font-medium text-foreground">{item.subject}</p>
                         <p className="text-xs text-muted-foreground mt-1">{item.time}</p>
                         <Badge variant="secondary" className="mt-2 text-xs">

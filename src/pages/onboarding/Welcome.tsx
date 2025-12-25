@@ -10,9 +10,7 @@ const Welcome = () => {
   const handleStartJourney = () => {
     playClickSound();
     speak("Welcome to Lovable! Let's begin your journey to success!");
-    setTimeout(() => {
-      navigate("/onboarding/profile");
-    }, 500);
+    setTimeout(() => navigate("/onboarding/profile"), 500);
   };
 
   return (
@@ -55,13 +53,23 @@ const Welcome = () => {
 
           {/* CTA */}
           <div className="pt-8">
-            <Button 
-              size="lg" 
-              className="bg-primary hover:bg-primary/90 text-white px-12 py-6 text-lg rounded-full shadow-hover transition-all duration-300 hover:scale-105"
-              onClick={handleStartJourney}
-            >
-              Start Your Journey
-            </Button>
+            <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
+              <Button 
+                size="lg" 
+                className="bg-primary hover:bg-primary/90 text-white px-12 py-6 text-lg rounded-full shadow-hover transition-all duration-300 hover:scale-105"
+                onClick={handleStartJourney}
+              >
+                Start Your Journey
+              </Button>
+              <Button
+                size="lg"
+                variant="outline"
+                className="rounded-full px-12 py-6 text-lg"
+                onClick={() => navigate('/onboarding/login')}
+              >
+                Login
+              </Button>
+            </div>
           </div>
         </div>
       </div>

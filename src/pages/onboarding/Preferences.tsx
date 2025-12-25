@@ -7,6 +7,8 @@ import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { ArrowLeft, Eye, FileText, HelpCircle, Sparkles } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
+import { supabase } from "@/lib/supabaseClient";
+import { toast } from "@/components/ui/use-toast";
 
 const Preferences = () => {
   const navigate = useNavigate();
@@ -34,9 +36,31 @@ const Preferences = () => {
     }));
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     playClickSound();
     speak("Perfect choices! Your study preferences are saved. Almost done!");
+    try {
+      const { data: userData } = await supabase.auth.getUser();
+      const userId = (userData as any)?.user?.id;
+      if (!userId) {
+        toast({ title: 'Not signed in', description: 'Please login or register first.', variant: 'destructive' });
+        return;
+      }
+      const payload: any = {
+        id: userId,
+        user_id: userId,
+        study_hours: preferences.studyHours,
+        study_style: preferences.studyStyle,
+        sundays_free: preferences.sundaysFree,
+      };
+      const { error } = await supabase.from('profiles').upsert(payload);
+      if (error) {
+        toast({ title: 'Save failed', description: error.message, variant: 'destructive' });
+      }
+    } catch (err) {
+      toast({ title: 'Error', description: 'Could not save preferences.', variant: 'destructive' });
+    }
+
     setTimeout(() => {
       navigate("/onboarding/finish");
     }, 500);
