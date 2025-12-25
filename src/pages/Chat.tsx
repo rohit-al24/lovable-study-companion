@@ -70,7 +70,7 @@ const Chat = () => {
               </div>
             </div>
           </div>
-
+          
           {/* Quick Actions */}
           {messages.length === 1 && (
             <div className="mb-6 grid grid-cols-2 gap-3">
