@@ -201,7 +201,7 @@ const Courses = () => {
       // Fetch notes for this course/filename across all users
       const { data, error } = await supabase
         .from('notes')
-        .select('id,note_text,text,created_at')
+        .select('id,user_id,note_text,text,created_at')
         .match({ course_name: course.name, filename: note });
       console.log('note fetch response', { data, error });
       if (error) {
