@@ -1,19 +1,21 @@
 import { useState, useRef, useEffect } from "react";
+import { Mic, X, Sparkles, Volume2 } from "lucide-react";
+import { useVoice } from "@/hooks/useVoice";
 
 interface FloatingAssistantProps {
-  // allow onQuery to return void, a string, or a Promise<string>
-  onQuery?: (query: string) => void | string | Promise<string>;
+  onQuery?: (query: string) => void | string | Promise<string | void>;
   context?: any;
 }
 
 const wakeWords = ["griffin"];
 
 export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, context }) => {
+  const { speak } = useVoice();
   const [liveAssistantOn, setLiveAssistantOn] = useState(false);
   const [isAssistantActive, setIsAssistantActive] = useState(false);
   const [assistantPos, setAssistantPos] = useState<{ x: number; y: number }>({
-    x: window.innerWidth - 84,
-    y: window.innerHeight - 120,
+    x: typeof window !== 'undefined' ? window.innerWidth - 84 : 100,
+    y: typeof window !== 'undefined' ? window.innerHeight - 120 : 100,
   });
   const dragRef = useRef<{ dragging: boolean; startX: number; startY: number; originX: number; originY: number }>({
     dragging: false,
@@ -30,6 +32,7 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
   const [popupTranscript, setPopupTranscript] = useState('');
   const [popupReply, setPopupReply] = useState('');
   const failureCountRef = useRef(0);
+  const [expandedView, setExpandedView] = useState(false);
 
   // Background wake-word listener
   useEffect(() => {
@@ -42,7 +45,6 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
 
     const startBackground = async () => {
       if (!mounted || !liveAssistantOn) return;
-      // ensure microphone access first
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         console.warn('No getUserMedia available');
         setPopupState('reply');
@@ -51,15 +53,13 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       }
       try {
         const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-        // immediately stop tracks; this is just a permission/test probe
         try { s.getTracks().forEach((t) => t.stop()); } catch {}
       } catch (err) {
         console.warn('getUserMedia failed', err);
         setPopupState('reply');
-        setPopupReply('Microphone permission denied or not available. Please allow microphone access.');
+        setPopupReply('Microphone permission denied or not available.');
         return;
       }
-      // create a new recognizer each time to avoid stale state
       const rec = new (window as any).webkitSpeechRecognition();
       rec.continuous = true;
       rec.interimResults = true;
@@ -67,7 +67,7 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
 
       rec.onresult = (event: any) => {
         try {
-          if (listeningForQuery) return; // ignore while single-shot active
+          if (listeningForQuery) return;
           let interim = '';
           let final = '';
           for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -77,18 +77,15 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
           }
           const text = (final || interim).trim();
           if (!text) return;
-          const t = text.trim();
-          const lowered = t.toLowerCase();
+          const lowered = text.toLowerCase();
           if (lowered.startsWith('griffin')) {
             setIsAssistantActive(true);
-            const cleaned = t.replace(/^(griffin)\b[\,\s]*/i, '').trim();
-            // start focused capture if user didn't provide more after wake word
+            setExpandedView(true);
+            const cleaned = text.replace(/^(griffin)\b[\,\s]*/i, '').trim();
             if (!cleaned) {
-              // stop this background recorder before starting single-shot
               try { rec.stop(); } catch (e) {}
               startSingleShotListener('');
             } else {
-              // small delay then send cleaned text
               setTimeout(() => { if (cleaned && onQuery) onQuery(cleaned); }, 120);
             }
           }
@@ -98,42 +95,27 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       };
 
       rec.onstart = () => {
-        console.debug('FloatingAssistant background recognizer started');
         setIsBackgroundRunning(true);
       };
       rec.onerror = (ev: any) => {
-        console.warn('FloatingAssistant recognizer error', ev);
         setIsAssistantActive(false);
         setIsBackgroundRunning(false);
-        const err = ev?.error || (ev?.message ? 'error' : 'unknown');
-        // handle 'aborted' by retrying a few times with backoff
+        const err = ev?.error || 'unknown';
         if (err === 'aborted') {
           failureCountRef.current = (failureCountRef.current || 0) + 1;
           if (failureCountRef.current <= 3) {
-            setPopupState('reply');
-            setPopupReply('Recognition aborted — retrying...');
             setTimeout(() => {
               if (mounted && liveAssistantOn && !listeningForQuery) startBackground();
             }, 500 * failureCountRef.current);
             return;
           }
-          // too many failures
-          setPopupState('reply');
-          setPopupReply('Speech recognition repeatedly aborted. Try reloading the page or checking your microphone.');
-          return;
         }
-        // generic error: show guidance
-        setPopupState('reply');
-        setPopupReply('Speech recognition error. Check microphone permissions.');
       };
       rec.onend = () => {
         recognitionRef.current = null;
         setIsBackgroundRunning(false);
-        console.debug('FloatingAssistant background ended, failureCount=', failureCountRef.current);
         if (!mounted) return;
-        // restart unless we're in single-shot or live turned off
         if (liveAssistantOn && !listeningForQuery) {
-          // backoff increases if we've seen multiple aborts
           const backoff = (failureCountRef.current || 0) >= 3 ? 2000 : 300;
           setTimeout(() => { if (mounted && liveAssistantOn) startBackground(); }, backoff);
         }
@@ -144,8 +126,6 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
         rec.start();
       } catch (e) {
         console.warn('Failed to start background recognizer', e);
-        setPopupState('reply');
-        setPopupReply('Failed to start speech recognition (see console).');
       }
     };
 
@@ -158,238 +138,414 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
     };
   }, [liveAssistantOn, onQuery, listeningForQuery]);
 
-  // Allow user to reset recognizers and clear abort counters
-  const resetRecognizers = () => {
-    failureCountRef.current = 0;
-    try { recognitionRef.current?.stop(); } catch {}
-    try { singleRef.current?.stop(); } catch {}
-    recognitionRef.current = null;
-    singleRef.current = null;
-    setPopupState('reply');
-    setPopupReply('Resetting recognizers...');
-    // toggle liveAssistantOn to force the useEffect to restart recognizers
-    setLiveAssistantOn(false);
-    setTimeout(() => setLiveAssistantOn(true), 600);
-    setTimeout(() => setPopupState('hidden'), 1400);
+  const startSingleShotListener = (initialText: string = '') => {
+    if (!('webkitSpeechRecognition' in window)) return;
+    setListeningForQuery(true);
+    setIsAssistantActive(true);
+    setExpandedView(true);
+    setPopupState('listening');
+    setPopupTranscript(initialText || '');
+    if (singleRef.current) {
+      try { singleRef.current.stop(); } catch {}
+      singleRef.current = null;
+    }
+    const srec = new (window as any).webkitSpeechRecognition();
+    srec.continuous = false;
+    srec.interimResults = true;
+    srec.lang = 'en-GB';
+    srec.maxAlternatives = 1;
+    let captured = initialText || '';
+    const startTime = Date.now();
+    let lastResultTime = Date.now();
+    srec.onresult = (ev: any) => {
+      let interim = '';
+      let final = '';
+      for (let i = ev.resultIndex; i < ev.results.length; ++i) {
+        const r = ev.results[i];
+        if (r.isFinal) final += r[0].transcript;
+        else interim += r[0].transcript;
+      }
+      if (final) captured = (captured + ' ' + final).trim();
+      const display = (captured + ' ' + interim).trim();
+      lastResultTime = Date.now();
+      setPopupTranscript(display);
+    };
+    srec.onerror = (ev: any) => {
+      console.warn('Single-shot recognizer error', ev);
+      setListeningForQuery(false);
+      setIsAssistantActive(false);
+      setPopupState('hidden');
+      try { recognitionRef.current?.start(); } catch {}
+    };
+    srec.onend = () => {
+      const elapsed = Date.now() - startTime;
+      if (elapsed < 3000) {
+        setTimeout(() => startSingleShotListener(captured), 120);
+        return;
+      }
+      setListeningForQuery(false);
+      setPopupState('recognizing');
+      (async () => {
+        try {
+          let answer = '';
+          if (onQuery) {
+            const result = onQuery(captured);
+            const awaited = await Promise.resolve(result as any);
+            if (typeof awaited === 'string') {
+              answer = awaited;
+            }
+          }
+          setPopupReply(answer || 'I heard you, but no response was generated.');
+          setPopupState('reply');
+          if (answer) speak(answer);
+          try { recognitionRef.current?.start(); } catch {}
+        } catch (e) {
+          setPopupReply('Error getting reply.');
+          setPopupState('reply');
+          try { recognitionRef.current?.start(); } catch {}
+        }
+      })();
+    };
+    singleRef.current = srec;
+    try { srec.start(); } catch (e) {
+      setListeningForQuery(false);
+      setIsAssistantActive(false);
+      setPopupState('hidden');
+      try { recognitionRef.current?.start(); } catch {}
+    }
   };
 
-    // single-shot listener for capturing user's full question after wake-word
-    const startSingleShotListener = (initialText: string = '') => {
-      if (!('webkitSpeechRecognition' in window)) return;
-      setListeningForQuery(true);
-      setIsAssistantActive(true);
-      setListeningForQuery(true);
-      setIsAssistantActive(true);
-      setPopupState('listening');
-      setPopupTranscript(initialText || '');
-      // stop any existing single
-      if (singleRef.current) {
-        try { singleRef.current.stop(); } catch {}
-        singleRef.current = null;
-      }
-      const srec = new (window as any).webkitSpeechRecognition();
-      srec.continuous = false;
-      srec.interimResults = true; // show live interim
-      srec.lang = 'en-GB';
-      srec.maxAlternatives = 1;
-      let captured = initialText || '';
-      const startTime = Date.now();
-      let lastResultTime = Date.now();
-      srec.onresult = (ev: any) => {
-        // accumulate interim/final
-        let interim = '';
-        let final = '';
-        for (let i = ev.resultIndex; i < ev.results.length; ++i) {
-          const r = ev.results[i];
-          if (r.isFinal) final += r[0].transcript;
-          else interim += r[0].transcript;
-        }
-        if (final) captured = (captured + ' ' + final).trim();
-        const display = (captured + ' ' + interim).trim();
-        lastResultTime = Date.now();
-        setPopupTranscript(display);
-      };
-      srec.onerror = (ev: any) => {
-        console.warn('Single-shot recognizer error', ev);
-        const err = ev?.error || (ev?.message ? 'error' : 'unknown');
-        setListeningForQuery(false);
-        setIsAssistantActive(false);
-        setPopupState('hidden');
-        if (err === 'aborted') {
-          failureCountRef.current = (failureCountRef.current || 0) + 1;
-          // small retry once
-          setTimeout(() => startSingleShotListener(captured), 300);
-          return;
-        }
-        // resume background
-        try { recognitionRef.current?.start(); } catch {}
-      };
-      srec.onend = () => {
-        const elapsed = Date.now() - startTime;
-        const silence = Date.now() - lastResultTime;
-        // enforce minimum 3s listening; if too short, restart single-shot to continue
-        if (elapsed < 3000) {
-          // restart to keep listening
-          setTimeout(() => startSingleShotListener(captured), 120);
-          return;
-        }
-        // if we recently got a result but recognizer ended, proceed
-        setListeningForQuery(false);
-        setIsAssistantActive(false);
-        // move to recognizing/loading
-        setPopupState('recognizing');
-        // call onQuery and show reply in popup
-        (async () => {
-          try {
-            let answer = '';
-            if (onQuery) {
-              // normalize whatever onQuery returns (void | string | Promise<string>)
-              const result = onQuery(captured);
-              // await Promise.resolve(...) so both sync and async returns are handled uniformly
-              const awaited = await Promise.resolve(result as any);
-              if (typeof awaited === 'string') {
-                answer = awaited;
-              } else if (typeof result === 'string') {
-                // fallback if awaited isn't a string but original result was sync string
-                answer = result;
-              } else {
-                answer = '';
-              }
-            }
-            setPopupReply(answer || 'No reply');
-            setPopupState('reply');
-            // resume background recognition
-            try { recognitionRef.current?.start(); } catch {}
-          } catch (e) {
-            setPopupReply('Error getting reply.');
-            setPopupState('reply');
-            try { recognitionRef.current?.start(); } catch {}
-          }
-        })();
-      };
-      singleRef.current = srec;
-      try { srec.start(); } catch (e) {
-        // if start fails, immediately cleanup
-        setListeningForQuery(false);
-        setIsAssistantActive(false);
-        setPopupState('hidden');
-        try { recognitionRef.current?.start(); } catch {}
-      }
-    };
-
-  // Inline AssistantPopup component
-  const AssistantPopup: React.FC<{ state: 'hidden'|'listening'|'recognizing'|'reply'; transcript: string; reply: string; onClose: () => void }> = ({ state, transcript, reply, onClose }) => {
-    if (state === 'hidden') return null;
-    return (
-      <div style={{
-        position: 'fixed', left: 0, top: 0, width: '100vw', height: '100vh', zIndex: 1000,
-        background: 'rgba(0,0,0,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <div style={{ background: '#fff', borderRadius: 16, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', padding: 28, minWidth: 320, maxWidth: '90vw', minHeight: 120, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
-          {state === 'listening' && <>
-            <div style={{ fontWeight: 600, color: '#0ea5a0', marginBottom: 8 }}>Listening…</div>
-            <div style={{ fontSize: 18, minHeight: 32 }}>{transcript || <span style={{ color: '#aaa' }}>Say something…</span>}</div>
-          </>}
-          {state === 'recognizing' && <>
-            <div style={{ fontWeight: 600, color: '#0ea5a0', marginBottom: 8 }}>Recognizing…</div>
-            <div style={{ fontSize: 18, minHeight: 32 }}>{transcript}</div>
-          </>}
-          {state === 'reply' && <>
-            <div style={{ fontWeight: 600, color: '#0ea5a0', marginBottom: 8 }}>Assistant</div>
-            <div style={{ fontSize: 18, minHeight: 32 }}>{reply}</div>
-          </>}
-          <button onClick={onClose} style={{ marginTop: 12, background: '#0ea5a0', color: '#fff', border: 'none', borderRadius: 8, padding: '8px 18px', fontWeight: 500, cursor: 'pointer' }}>Close</button>
-        </div>
-      </div>
-    );
+  const closeAssistant = () => {
+    setExpandedView(false);
+    setPopupState('hidden');
+    setIsAssistantActive(false);
   };
 
   return (
-    <div style={{ position: 'fixed', left: assistantPos.x, top: assistantPos.y, zIndex: 60, touchAction: 'none' }}
-      onPointerDown={(e) => {
-        const p = dragRef.current; p.dragging = true; p.startX = e.clientX; p.startY = e.clientY; p.originX = assistantPos.x; p.originY = assistantPos.y; (e.target as Element).setPointerCapture?.((e as any).pointerId);
-      }}
-      onPointerMove={(e) => {
-        const p = dragRef.current; if (!p.dragging) return; const dx = e.clientX - p.startX; const dy = e.clientY - p.startY; setAssistantPos({ x: Math.min(Math.max(8, p.originX + dx), window.innerWidth - 72), y: Math.min(Math.max(8, p.originY + dy), window.innerHeight - 72) });
-      }}
-      onPointerUp={(e) => { const p = dragRef.current; p.dragging = false; try { (e.target as Element).releasePointerCapture?.((e as any).pointerId); } catch {} }}>
-      <div style={{ position: 'relative' }}>
+    <>
+      {/* Floating Button */}
+      <div 
+        style={{ 
+          position: 'fixed', 
+          left: assistantPos.x, 
+          top: assistantPos.y, 
+          zIndex: 9999, 
+          touchAction: 'none' 
+        }}
+        onPointerDown={(e) => {
+          const p = dragRef.current; 
+          p.dragging = true; 
+          p.startX = e.clientX; 
+          p.startY = e.clientY; 
+          p.originX = assistantPos.x; 
+          p.originY = assistantPos.y; 
+          (e.target as Element).setPointerCapture?.((e as any).pointerId);
+        }}
+        onPointerMove={(e) => {
+          const p = dragRef.current; 
+          if (!p.dragging) return; 
+          const dx = e.clientX - p.startX; 
+          const dy = e.clientY - p.startY; 
+          setAssistantPos({ 
+            x: Math.min(Math.max(8, p.originX + dx), window.innerWidth - 72), 
+            y: Math.min(Math.max(8, p.originY + dy), window.innerHeight - 72) 
+          });
+        }}
+        onPointerUp={(e) => { 
+          const p = dragRef.current; 
+          p.dragging = false; 
+          try { (e.target as Element).releasePointerCapture?.((e as any).pointerId); } catch {} 
+        }}
+      >
         <button
-          onClick={() => setLiveAssistantOn((s) => !s)}
-          title={liveAssistantOn ? 'Disable Live Assistant' : 'Enable Live Assistant'}
-          className="rounded-full p-2 shadow-lg"
+          onClick={() => {
+            if (!liveAssistantOn) {
+              setLiveAssistantOn(true);
+              setExpandedView(true);
+            } else {
+              setExpandedView(!expandedView);
+            }
+          }}
+          className="relative group"
           style={{
             width: 64,
             height: 64,
-            borderRadius: 32,
+            borderRadius: '50%',
             padding: 0,
             overflow: 'hidden',
-            background: liveAssistantOn ? '#0ea5a0' : '#fff',
-            transition: 'transform 220ms ease, box-shadow 220ms ease'
+            background: liveAssistantOn 
+              ? 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%)' 
+              : 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
+            boxShadow: liveAssistantOn 
+              ? '0 8px 32px rgba(102, 126, 234, 0.4), 0 0 60px rgba(118, 75, 162, 0.3)' 
+              : '0 4px 20px rgba(0,0,0,0.1)',
+            transition: 'all 300ms ease',
+            border: 'none',
+            cursor: 'pointer',
           }}
         >
-          <img src="/loader3.gif" alt="live" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', filter: liveAssistantOn ? 'saturate(1.2) brightness(1.05)' : 'none' }} />
+          {/* Animated rings */}
+          {liveAssistantOn && (
+            <>
+              <div 
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(102,126,234,0.3), rgba(240,147,251,0.3))',
+                  animation: 'pulse-ring 2s ease-out infinite',
+                }}
+              />
+              <div 
+                className="absolute inset-0 rounded-full"
+                style={{
+                  background: 'linear-gradient(135deg, rgba(102,126,234,0.2), rgba(240,147,251,0.2))',
+                  animation: 'pulse-ring 2s ease-out infinite 0.5s',
+                }}
+              />
+            </>
+          )}
+          <div className="relative z-10 w-full h-full flex items-center justify-center">
+            <img 
+              src="/loader3.gif" 
+              alt="Griffin AI" 
+              style={{ 
+                width: '85%', 
+                height: '85%', 
+                objectFit: 'cover', 
+                borderRadius: '50%',
+                filter: liveAssistantOn ? 'brightness(1.1) saturate(1.2)' : 'grayscale(0.3)',
+              }} 
+            />
+          </div>
         </button>
-        {/* Push-to-talk button */}
-        {liveAssistantOn && (
-          <button
-            onClick={() => {
-              // start manual single-shot listen
-              if (!listeningForQuery) startSingleShotListener('');
-            }}
-            title={listeningForQuery ? 'Listening...' : 'Push to talk'}
-            className="rounded-full p-1 shadow-md"
+      </div>
+
+      {/* Expanded View - Google/Siri Style */}
+      {expandedView && (
+        <div 
+          className="fixed inset-0 z-[10000] flex items-end sm:items-center justify-center"
+          style={{
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)',
+            animation: 'fade-in 200ms ease-out',
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeAssistant();
+          }}
+        >
+          <div 
+            className="w-full sm:w-[420px] sm:max-w-[90vw] bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 rounded-t-3xl sm:rounded-3xl overflow-hidden"
             style={{
-              position: 'absolute',
-              right: -8,
-              top: -20,
-              width: 40,
-              height: 40,
-              borderRadius: 20,
-              background: listeningForQuery ? '#f97316' : '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: '1px solid rgba(0,0,0,0.06)'
+              boxShadow: '0 -20px 60px rgba(102, 126, 234, 0.3), 0 0 100px rgba(118, 75, 162, 0.2)',
+              animation: 'slide-up 300ms ease-out',
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 1C10.3431 1 9 2.34315 9 4V11C9 12.6569 10.3431 14 12 14C13.6569 14 15 12.6569 15 11V4C15 2.34315 13.6569 1 12 1Z" fill={listeningForQuery ? '#fff' : '#111827'} />
-              <path d="M19 11C19 14.3137 16.3137 17 13 17H11C7.68629 17 5 14.3137 5 11" stroke={listeningForQuery ? '#fff' : '#111827'} strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-        )}
-        {/* Expansion / Siri-style visual */}
-        {isAssistantActive && (
-          <div style={{ position: 'absolute', left: -64, top: -64, width: 192, height: 192, pointerEvents: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ width: 160, height: 160, borderRadius: '50%', background: 'rgba(14,165,160,0.12)', backdropFilter: 'blur(6px)', transform: 'scale(1)', animation: 'siriExpand 700ms ease-out' }} />
-          </div>
-        )}
-        {liveAssistantOn && (
-          <div style={{ position: 'absolute', right: 80, bottom: 8, width: 240 }}>
-            <div className={`p-3 rounded-xl shadow-xl bg-card border border-neutral/10 ${isAssistantActive ? 'scale-105' : ''}`}>
-              <div className="flex items-center gap-3">
-                <img src="/loader3.gif" alt="active" style={{ width: 40, height: 40, borderRadius: '50%' }} />
-                <div>
-                  <div className="font-semibold">Griffin (Live)</div>
-                    <div className="text-sm text-muted-foreground">{listeningForQuery ? 'Listening… speak now' : 'Say "Griffin" to ask a question'}</div>
+            {/* Header */}
+            <div className="relative p-6 pb-4">
+              <button 
+                onClick={closeAssistant}
+                className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                <X className="w-5 h-5 text-white/80" />
+              </button>
+              
+              {/* Orb Animation */}
+              <div className="flex justify-center mb-6">
+                <div 
+                  className="relative"
+                  style={{
+                    width: 120,
+                    height: 120,
+                  }}
+                >
+                  {/* Outer glow rings */}
+                  <div 
+                    className="absolute inset-0 rounded-full"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(102,126,234,0.4), rgba(240,147,251,0.4))',
+                      filter: 'blur(20px)',
+                      animation: listeningForQuery ? 'orb-pulse 1.5s ease-in-out infinite' : 'orb-idle 3s ease-in-out infinite',
+                    }}
+                  />
+                  <div 
+                    className="absolute inset-2 rounded-full"
+                    style={{
+                      background: 'linear-gradient(135deg, rgba(102,126,234,0.6), rgba(240,147,251,0.6))',
+                      filter: 'blur(10px)',
+                      animation: listeningForQuery ? 'orb-pulse 1.5s ease-in-out infinite 0.2s' : 'orb-idle 3s ease-in-out infinite 0.5s',
+                    }}
+                  />
+                  {/* Core orb */}
+                  <div 
+                    className="absolute inset-4 rounded-full overflow-hidden"
+                    style={{
+                      background: 'linear-gradient(135deg, #667eea, #764ba2, #f093fb)',
+                      boxShadow: '0 0 40px rgba(102, 126, 234, 0.5)',
+                    }}
+                  >
+                    <img 
+                      src="/loader3.gif" 
+                      alt="Griffin" 
+                      className="w-full h-full object-cover"
+                      style={{
+                        filter: 'brightness(1.1)',
+                      }}
+                    />
+                  </div>
+                  {/* Listening indicator waves */}
+                  {listeningForQuery && (
+                    <>
+                      <div className="absolute inset-0 rounded-full border-2 border-white/30" style={{ animation: 'wave-expand 1.5s ease-out infinite' }} />
+                      <div className="absolute inset-0 rounded-full border-2 border-white/20" style={{ animation: 'wave-expand 1.5s ease-out infinite 0.5s' }} />
+                      <div className="absolute inset-0 rounded-full border-2 border-white/10" style={{ animation: 'wave-expand 1.5s ease-out infinite 1s' }} />
+                    </>
+                  )}
                 </div>
               </div>
+
+              {/* Title */}
+              <div className="text-center">
+                <h2 className="text-2xl font-bold text-white mb-1">Griffin</h2>
+                <p className="text-white/60 text-sm flex items-center justify-center gap-2">
+                  <Sparkles className="w-4 h-4" />
+                  Your AI Study Companion
+                </p>
+              </div>
+            </div>
+
+            {/* Status Area */}
+            <div className="px-6 pb-4">
+              <div 
+                className="bg-white/5 backdrop-blur-sm rounded-2xl p-4 min-h-[100px] flex flex-col items-center justify-center"
+                style={{
+                  border: '1px solid rgba(255,255,255,0.1)',
+                }}
+              >
+                {popupState === 'hidden' && !listeningForQuery && (
+                  <div className="text-center">
+                    <p className="text-white/80 text-lg mb-2">
+                      {liveAssistantOn ? 'Say "Griffin" to ask a question' : 'Tap the mic to start'}
+                    </p>
+                    <p className="text-white/40 text-sm">or press the button below</p>
+                  </div>
+                )}
+                
+                {(popupState === 'listening' || listeningForQuery) && (
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-1 mb-3">
+                      {[...Array(5)].map((_, i) => (
+                        <div 
+                          key={i}
+                          className="w-1 bg-gradient-to-t from-purple-400 to-pink-400 rounded-full"
+                          style={{
+                            height: 20 + Math.random() * 20,
+                            animation: `equalizer 0.5s ease-in-out infinite ${i * 0.1}s`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <p className="text-white/80 text-lg">Listening...</p>
+                    {popupTranscript && (
+                      <p className="text-white mt-2 text-sm bg-white/10 rounded-lg px-3 py-2">
+                        "{popupTranscript}"
+                      </p>
+                    )}
+                  </div>
+                )}
+                
+                {popupState === 'recognizing' && (
+                  <div className="text-center">
+                    <div className="w-8 h-8 border-2 border-purple-400 border-t-transparent rounded-full animate-spin mb-3 mx-auto" />
+                    <p className="text-white/80">Processing...</p>
+                  </div>
+                )}
+                
+                {popupState === 'reply' && (
+                  <div className="text-center">
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <Volume2 className="w-4 h-4 text-purple-400" />
+                      <span className="text-purple-400 text-sm">Griffin says:</span>
+                    </div>
+                    <p className="text-white text-sm leading-relaxed">{popupReply}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="px-6 pb-6 flex gap-3">
+              <button
+                onClick={() => {
+                  if (!listeningForQuery) startSingleShotListener('');
+                }}
+                disabled={listeningForQuery}
+                className="flex-1 py-4 rounded-2xl font-medium transition-all flex items-center justify-center gap-2"
+                style={{
+                  background: listeningForQuery 
+                    ? 'linear-gradient(135deg, #ef4444, #f97316)' 
+                    : 'linear-gradient(135deg, #667eea, #764ba2)',
+                  color: 'white',
+                  boxShadow: '0 4px 20px rgba(102, 126, 234, 0.3)',
+                }}
+              >
+                <Mic className="w-5 h-5" />
+                {listeningForQuery ? 'Listening...' : 'Push to Talk'}
+              </button>
+              
+              <button
+                onClick={() => setLiveAssistantOn(!liveAssistantOn)}
+                className="px-6 py-4 rounded-2xl font-medium transition-all"
+                style={{
+                  background: liveAssistantOn ? 'rgba(239, 68, 68, 0.2)' : 'rgba(34, 197, 94, 0.2)',
+                  color: liveAssistantOn ? '#ef4444' : '#22c55e',
+                  border: `1px solid ${liveAssistantOn ? 'rgba(239, 68, 68, 0.3)' : 'rgba(34, 197, 94, 0.3)'}`,
+                }}
+              >
+                {liveAssistantOn ? 'Stop' : 'Start'}
+              </button>
+            </div>
+
+            {/* Quick Tips */}
+            <div className="px-6 pb-6">
+              <p className="text-white/40 text-xs text-center">
+                💡 Try: "Griffin, explain photosynthesis" or "Quiz me on calculus"
+              </p>
             </div>
           </div>
-        )}
-        {/* Diagnostics / Reset controls */}
-        {liveAssistantOn && (
-          <div style={{ position: 'absolute', right: 80, bottom: -48, width: 260, display: 'flex', gap: 8, alignItems: 'center' }}>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>abortRetries: {failureCountRef.current}</div>
-            <button onClick={resetRecognizers} style={{ background: '#efefef', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Reset</button>
-            <button onClick={() => { setPopupState('reply'); setPopupReply('If problems persist: allow mic permissions, reload, or use Push-to-talk.'); }} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer' }}>Help</button>
-          </div>
-        )}
-          {/* Assistant popup UI */}
-          <AssistantPopup state={popupState} transcript={popupTranscript} reply={popupReply} onClose={() => { setPopupState('hidden'); setPopupTranscript(''); setPopupReply(''); }} />
-      </div>
-    </div>
+        </div>
+      )}
+
+      {/* CSS Animations */}
+      <style>{`
+        @keyframes pulse-ring {
+          0% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(1.5); opacity: 0; }
+        }
+        @keyframes orb-pulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.1); }
+        }
+        @keyframes orb-idle {
+          0%, 100% { transform: scale(1); opacity: 0.8; }
+          50% { transform: scale(1.05); opacity: 1; }
+        }
+        @keyframes wave-expand {
+          0% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(2); opacity: 0; }
+        }
+        @keyframes equalizer {
+          0%, 100% { height: 8px; }
+          50% { height: 32px; }
+        }
+        @keyframes slide-up {
+          0% { transform: translateY(100%); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        @keyframes fade-in {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
+      `}</style>
+    </>
   );
 };
 
