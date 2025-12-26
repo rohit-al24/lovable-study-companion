@@ -99,6 +99,7 @@ const Schedule = () => {
                       if (unitNames.length === 0) return;
                       setScheduleLoading(true); setScheduleResult([]);
                       try {
+                        const { apiUrl } = await import('@/lib/api');
                         const res = await fetch(apiUrl('/api/llm/schedule'), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ units: unitNames, study_days: studyDays, exam_date: examDate }) });
                         const data = await res.json();
                         const sched = data.schedule || data;
@@ -131,6 +132,7 @@ const Schedule = () => {
                               const context = (typeof u === 'string' ? u : (u.summary ? `${u.unit}\n${u.summary}` : JSON.stringify(u)));
                               setQuizLoading(true); setQuiz(null);
                               try {
+                                const { apiUrl } = await import('@/lib/api');
                                 const res = await fetch(apiUrl('/api/llm/quiz'), { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ context, num_questions: 5, subject }) });
                                 const data = await res.json();
                                 setQuiz(data);
