@@ -14,13 +14,7 @@ app = FastAPI()
 # Enable CORS for frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8080",
-        "http://localhost:8081",
-        "http://localhost:5173",
-        "https://griffin.zynix.us",
-        "https://lovable-study-companion.vercel.app"
-    ],  # Vite dev server(s) and deployed frontend
+    allow_origins=["*"],  # Allow all origins (for debugging; restrict in production)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
