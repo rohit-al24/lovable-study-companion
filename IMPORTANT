@@ -12,3 +12,12 @@ $env:PYTHON = (Resolve-Path ".\.venv\Scripts\python.exe").Path; python -m uvicor
 :: & ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 ngrok http 8000
+
+
+--------------------------------Cloudflare Tunnel--------------------------------
+& ".\.venv\Scripts\Activate.ps1"
+& ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+
+---START-----
+cloudflared tunnel run mytunnel
+-------------
