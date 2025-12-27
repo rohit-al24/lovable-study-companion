@@ -28,7 +28,7 @@ const Chat = () => {
   const [userName, setUserName] = useState<string | null>(null);
   const [userInitials, setUserInitials] = useState<string>('A');
 
-  const aiProfile = { name: 'Griffin', initials: 'G' };
+  const aiProfile = { name: 'Griffin', initials: 'G', avatar: '/public/loader3.gif' }; // Updated AI profile to include avatar path
 
   const initialsFromName = (name?: string | null) => {
     if (!name) return 'U';
@@ -393,9 +393,9 @@ const Chat = () => {
                 >
                   <Avatar className={`w-10 h-10 ${message.role === "assistant" ? "bg-gradient-hero" : "bg-muted"}`}>
                     {message.role === "assistant" ? (
-                      <Heart className="w-5 h-5 text-white" />
+                      <img src={aiProfile.avatar} alt="AI Avatar" className="w-full h-full rounded-full object-cover" />
                     ) : (
-                      <span className="text-sm font-medium">A</span>
+                      <span className="text-sm font-medium">{userInitials}</span>
                     )}
                   </Avatar>
 
