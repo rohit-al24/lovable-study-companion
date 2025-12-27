@@ -18,12 +18,12 @@ export const useVoice = (selectedVoiceName?: string) => {
         preferredVoice = voices.find(v => v.name === selectedVoiceName);
       }
       if (!preferredVoice) {
-        // Prioritize a female UK English voice
+        // Prioritize a female UK English voice (check name for female hint since gender property doesn't exist)
         preferredVoice =
-          voices.find(v => v.lang === "en-GB" && (v.gender === "female" || v.name.toLowerCase().includes("female"))) ||
+          voices.find(v => v.lang === "en-GB" && v.name.toLowerCase().includes("female")) ||
           voices.find(v => v.lang === "en-GB" && v.name.toLowerCase().includes("uk")) ||
           voices.find(v => v.lang === "en-GB") ||
-          voices.find(v => v.lang && v.lang.startsWith("en") && (v.gender === "female" || v.name.toLowerCase().includes("female"))) ||
+          voices.find(v => v.lang && v.lang.startsWith("en") && v.name.toLowerCase().includes("female")) ||
           voices.find(v => v.lang && v.lang.startsWith("en"));
       }
       // Fallback to first available
@@ -36,7 +36,7 @@ export const useVoice = (selectedVoiceName?: string) => {
       
       window.speechSynthesis.speak(utterance);
     }
-  }, []);
+  }, [selectedVoiceName]);
 
   const playClickSound = useCallback(() => {
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
