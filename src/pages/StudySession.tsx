@@ -502,7 +502,7 @@ const StudySession = () => {
           <div className="flex gap-2 overflow-x-auto pb-2 px-1">
             {[
               { id: "notes", label: "Notes", icon: BookOpen, color: "from-blue-500 to-cyan-500" },
-              { id: "chat", label: "Ask AI", icon: MessageCircle, color: "from-purple-500 to-pink-500" },
+              { id: "chat", label: "Griffin Ai", icon: MessageCircle, color: "from-purple-500 to-pink-500" },
               { id: "quiz", label: "Quiz", icon: Trophy, color: "from-orange-500 to-yellow-500" },
             ].map((tab) => {
               const Icon = tab.icon;

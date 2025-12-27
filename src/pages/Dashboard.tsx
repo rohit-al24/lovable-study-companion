@@ -252,9 +252,14 @@ const Dashboard = () => {
           <div className="space-y-4">
             <h2 className="text-xl font-semibold text-foreground">Quick Actions</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+
               <Button
                 variant="outline"
                 className="h-24 flex-col gap-2 rounded-2xl border-2 hover:border-primary hover:bg-primary/5"
+                onClick={() => {
+                  playClickSound && playClickSound();
+                  navigate('/courses');
+                }}
               >
                 <Upload className="w-6 h-6" />
                 <span className="text-sm">Upload Notes</span>
@@ -262,9 +267,13 @@ const Dashboard = () => {
               <Button
                 variant="outline"
                 className="h-24 flex-col gap-2 rounded-2xl border-2 hover:border-primary hover:bg-primary/5"
+                onClick={() => {
+                  playClickSound && playClickSound();
+                  navigate('/chat');
+                }}
               >
                 <MessageCircle className="w-6 h-6" />
-                  <span className="text-sm">Ask Griffin</span>
+                <span className="text-sm">Ask Griffin</span>
               </Button>
               <Button
                 variant="outline"
