@@ -116,3 +116,32 @@ All colors MUST be HSL.
     @apply bg-background text-foreground;
   }
 }
+
+/* Chat / Splash animations */
+@keyframes float-slow {
+  0% { transform: translateY(0px) translateX(0px) scale(1); }
+  50% { transform: translateY(-8px) translateX(6px) scale(1.02); }
+  100% { transform: translateY(0px) translateX(0px) scale(1); }
+}
+
+@keyframes twinkle {
+  0% { opacity: .6; transform: scale(.95); }
+  50% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: .6; transform: scale(.95); }
+}
+
+@keyframes fade-in {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in { animation: fade-in 360ms ease-out both; }
+.animate-slide-up { animation: slide-up 220ms ease-out both; }
+.animate-float-slow { animation: float-slow 8s ease-in-out infinite; }
+.animate-twinkle { animation: twinkle 3.5s ease-in-out infinite; }
+

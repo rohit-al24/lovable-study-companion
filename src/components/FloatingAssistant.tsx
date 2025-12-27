@@ -44,40 +44,91 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
   const failureCountRef = useRef(0);
   const [expandedView, setExpandedView] = useState(false);
 
-  // Helper: call provided onQuery handler, then fallback to general LLM (no context)
+  // Helper: prefer the general (friendly) LLM first, then fall back to page-specific handler or notes
   const handleQuery = async (query: string) => {
-    // record user message
     setConvoHistory((h) => [...h, { role: 'user', content: query }].slice(-20));
     let answer = '';
+    let source: string | null = null;
+
+    // 1) Try the general LLM first (no notes bias). This makes Griffin a friendly general assistant.
     try {
-      if (onQuery) {
-        const res = onQuery(query);
-        const awaited = await Promise.resolve(res as any);
-        if (typeof awaited === 'string' && awaited.trim()) answer = awaited;
+      const historyText = convoHistory.concat([{ role: 'user', content: query }])
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
+      // Provide conversation history but avoid forcing notes as context here
+      const genContext = historyText.trim();
+      const shortQuery = `Please answer briefly with a high-level overview and avoid deep technical details unless the user asks for depth.\n\n${query}`;
+      const gen = await fetch(apiUrl('/api/llm/ask'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: shortQuery, context: genContext || '' }),
+      });
+      if (gen.ok) {
+        const gd = await gen.json();
+        const genAnswer = gd?.answer || gd?.text || '';
+        if (genAnswer && genAnswer.trim()) {
+          answer = genAnswer;
+          source = 'general';
+        }
       }
     } catch (e) {
-      console.warn('onQuery handler error', e);
+      console.warn('FloatingAssistant: general LLM primary call failed', e);
     }
 
-    // If onQuery returned nothing or an unhelpful message, try the general LLM (use convo history + optional page context)
-    if (!answer || /no answer|couldn't find|i'm not sure|sorry|no response/i.test(answer.toLowerCase())) {
+    // 2) If the general LLM returned nothing useful, try the page-specific handler (`onQuery`) if provided
+    if (!answer || /no answer|couldn't find|i'm not sure|sorry|no response|not sure/i.test(String(answer).toLowerCase())) {
       try {
-        const historyText = convoHistory.concat([{ role: 'user', content: query }])
-          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
-        // Include any provided page context after the conversation history
-        const fullContext = `${historyText}\n\n${context || ''}`.trim();
-        const gen = await fetch(apiUrl('/api/llm/ask'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: query, context: fullContext }),
-        });
-        if (gen.ok) {
-          const gd = await gen.json();
-          const genAnswer = gd?.answer || gd?.text || '';
-          if (genAnswer && genAnswer.trim()) answer = genAnswer;
+        if (onQuery) {
+          const res = onQuery(query);
+          const awaited = await Promise.resolve(res as any);
+          if (typeof awaited === 'string' && awaited.trim()) {
+            answer = awaited;
+            source = 'page';
+          }
         }
       } catch (e) {
-        console.warn('FloatingAssistant: general LLM fallback failed', e);
+        console.warn('onQuery handler error', e);
+      }
+    }
+
+    // 3) As a last resort, try notes-based LLM using the provided page `context` or user's notes from Supabase
+    if (!answer || /no answer|couldn't find|i'm not sure|sorry|no response|not sure/i.test(String(answer).toLowerCase())) {
+      try {
+        // If a page `context` was provided, prefer using it as notes
+        let notesText = typeof context === 'string' ? context : '';
+        if (!notesText) {
+          const { data: userData } = await supabase.auth.getUser();
+          const uid = (userData as any)?.user?.id || null;
+          if (uid) {
+            const { data: notesData } = await supabase
+              .from('notes')
+              .select('note_text,text')
+              .eq('user_id', uid)
+              .order('created_at', { ascending: false })
+              .limit(50);
+            if (notesData && Array.isArray(notesData) && notesData.length > 0) {
+              notesText = notesData.map((n: any) => (n.note_text || n.text || '')).filter(Boolean).join('\n');
+            }
+          }
+        }
+
+        if (notesText) {
+          const shortQueryNotes = `Please answer briefly with a high-level overview and avoid deep technical details unless the user asks for depth.\n\n${query}`;
+          const resp = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: shortQueryNotes, context: notesText }),
+          });
+          if (resp.ok) {
+            const data = await resp.json();
+            const noteAns = data?.answer || data?.text || '';
+            if (noteAns && noteAns.trim()) {
+              answer = noteAns;
+              source = 'notes';
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('FloatingAssistant: notes-based attempt failed', e);
       }
     }
 
@@ -86,15 +137,15 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       setConvoHistory((h) => [...h, { role: 'assistant', content: answer }].slice(-20));
     }
 
-    // Persist to Supabase for user if enabled (non-blocking)
+    // Persist to Supabase for user if enabled (non-blocking) — include source in metadata when possible
     if (saveConversations) {
       (async () => {
         try {
           const { data: userData } = await supabase.auth.getUser();
           const uid = (userData as any)?.user?.id || null;
-          await supabase.from('conversations').insert([{ user_id: uid, question: query, answer: answer || '', context: context || null }]);
+          const metadata = { source };
+          await supabase.from('conversations').insert([{ user_id: uid, question: query, answer: answer || '', context: source === 'notes' ? (context || null) : null, metadata }]);
         } catch (e) {
-          // If table doesn't exist or insert fails, don't break the flow
           console.warn('Could not persist conversation to Supabase', e);
         }
       })();
@@ -527,10 +578,10 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
 
               {/* Title */}
               <div className="text-center">
-                <h2 className="text-2xl font-bold text-white mb-1">Griffin AI — Study Assistant by Zynix</h2>
+                <h2 className="text-2xl font-bold text-white mb-1">Griffin — Friendly Assistant</h2>
                 <p className="text-white/60 text-sm flex items-center justify-center gap-2">
                   <Sparkles className="w-4 h-4" />
-                  Your AI Study Companion
+                  Your friendly AI assistant
                 </p>
                 <div className="mt-2 flex items-center justify-center gap-3">
                   <label className="text-xs text-white/70">Save chats</label>

@@ -186,8 +186,8 @@ const Dashboard = () => {
       if (!answer || /not in the provided notes|i don't know/i.test(answer)) {
         const q2 = query.trim().toLowerCase();
         if (q2.includes('hello') || q2.includes('hi')) answer = "Hello! How can I help you today?";
-        else if (q2.includes('how are you')) answer = "I'm just a bunch of code, but I'm here to help you study!";
-        else if (q2.includes('who are you')) answer = "I'm Griffin, your study companion!";
+        else if (q2.includes('how are you')) answer = "I'm just a bunch of code, but I'm here to help you!";
+        else if (q2.includes('who are you')) answer = "I'm Griffin, your friendly assistant!";
         else if (q2.includes('thank')) answer = "You're welcome! Let me know if you need anything else.";
         else answer = 'Sorry, no answer from the assistant.';
       }

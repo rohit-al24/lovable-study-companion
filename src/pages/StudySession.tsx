@@ -58,7 +58,7 @@ const StudySession = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Hi! I'm Griffin, your study companion. Ask me anything about ${topic}!`,
+      content: `Hi! I'm Griffin, your friendly assistant. Ask me anything about ${topic}!`,
     },
   ]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -169,7 +169,7 @@ const StudySession = () => {
           body: JSON.stringify({ question: retryText, context: contextText, subject: subject || '', topic }),
         });
         let answer2 = '';
-        if (!resp2.ok) answer2 = "Sorry, there was a problem getting an answer from the study assistant.";
+        if (!resp2.ok) answer2 = "Sorry, there was a problem getting an answer from the assistant.";
         else {
           const data2 = await resp2.json();
           answer2 = data2?.answer || data2?.text || "I couldn't find an answer in your notes, but I can try generally.";
@@ -188,7 +188,7 @@ const StudySession = () => {
           const msgs = prev.slice();
           const idx = msgs.findIndex((m) => m.content === '__LOADING__');
           if (idx !== -1) msgs.splice(idx, 1);
-          return [...msgs, { role: 'assistant', content: 'Sorry, there was a problem getting an answer from the study assistant.' }];
+          return [...msgs, { role: 'assistant', content: 'Sorry, there was a problem getting an answer from the assistant.' }];
         });
         return;
       } finally {
@@ -214,7 +214,7 @@ const StudySession = () => {
       });
       let answer = "";
       if (!res.ok) {
-        answer = "Sorry, there was a problem getting an answer from the study assistant.";
+        answer = "Sorry, there was a problem getting an answer from the assistant.";
       } else {
         const data = await res.json();
         answer = data.answer || data.text || "";
@@ -249,7 +249,7 @@ const StudySession = () => {
         const msgs = prev.slice();
         const idx = msgs.findIndex((m) => m.content === "__LOADING__");
         if (idx !== -1) msgs.splice(idx, 1);
-        return [...msgs, { role: "assistant", content: "Sorry, there was a problem getting an answer from the study assistant." }];
+        return [...msgs, { role: "assistant", content: "Sorry, there was a problem getting an answer from the assistant." }];
       });
     } finally {
       setChatLoading(false);
