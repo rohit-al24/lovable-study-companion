@@ -38,13 +38,12 @@ class QuizRequest(BaseModel):
 
 @router.post("/api/llm/ask")
 async def ask_llm(req: LLMRequest):
-    # Strong instruction prompt: require answers to be derived from the provided notes
+    # General prompt: allow LLM to answer freely, using notes as context if available
     prompt = (
-        "You are a helpful, precise study assistant. ONLY use the provided notes to answer the user's question. "
-        "Do NOT hallucinate or invent facts. If the answer is not present in the notes, respond with: 'I don't know — this information is not in the provided notes.' "
-        "When possible, provide a one-sentence direct answer followed by a short quoted excerpt from the notes that supports the answer. "
-        "Be concise and use the user's subject and topic for context.\n\n"
-        f"Notes:\n{req.context}\n\nQuestion: {req.question}\n\nAnswer (one-sentence answer, then supporting quote if available):"
+        "You are a helpful, precise study assistant. Use the provided notes as context if they are relevant, but you may answer any question to the best of your ability. "
+        "If the answer is in the notes, prefer quoting or referencing them, but you are not limited to the notes. "
+        "Be concise and use the user's subject and topic for context when possible.\n\n"
+        f"Notes (optional):\n{req.context}\n\nQuestion: {req.question}\n\nAnswer:"
     )
     try:
         response = requests.post(

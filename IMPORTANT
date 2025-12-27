@@ -18,6 +18,6 @@ ngrok http 8000
 & ".\.venv\Scripts\Activate.ps1"
 & ".\.venv\Scripts\python.exe" -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
----START-----
+----START----
 cloudflared tunnel run mytunnel
 -------------

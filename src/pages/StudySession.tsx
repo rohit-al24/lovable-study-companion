@@ -64,6 +64,7 @@ const StudySession = () => {
   const [chatLoading, setChatLoading] = useState(false);
   const [inputMessage, setInputMessage] = useState("");
   const [isListening, setIsListening] = useState(false);
+  const [lastPendingQueryForNotes, setLastPendingQueryForNotes] = useState<string | null>(null);
 
   // Voice recognition for mic button
   const startListening = () => {
@@ -155,6 +156,46 @@ const StudySession = () => {
 
     const contextText = selectedNote?.note_text || notes;
 
+    // If the user replies 'yes' to use local notes for the last pending query, retry with notes
+    const q = textToSend.trim().toLowerCase();
+    if ((q === 'yes' || q === 'use notes' || q === 'use my notes') && lastPendingQueryForNotes) {
+      const retryText = lastPendingQueryForNotes;
+      setChatLoading(true);
+      setMessages((prev) => [...prev, { role: 'assistant', content: '__LOADING__' }]);
+      try {
+        const resp2 = await fetch(apiUrl('/api/llm/ask'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: retryText, context: contextText, subject: subject || '', topic }),
+        });
+        let answer2 = '';
+        if (!resp2.ok) answer2 = "Sorry, there was a problem getting an answer from the study assistant.";
+        else {
+          const data2 = await resp2.json();
+          answer2 = data2?.answer || data2?.text || "I couldn't find an answer in your notes, but I can try generally.";
+        }
+        setMessages((prev) => {
+          const msgs = prev.slice();
+          const idx = msgs.findIndex((m) => m.content === '__LOADING__');
+          if (idx !== -1) msgs.splice(idx, 1);
+          if (answer2) speak(answer2);
+          return [...msgs, { role: 'assistant', content: answer2 }];
+        });
+        setLastPendingQueryForNotes(null);
+        return;
+      } catch (e) {
+        setMessages((prev) => {
+          const msgs = prev.slice();
+          const idx = msgs.findIndex((m) => m.content === '__LOADING__');
+          if (idx !== -1) msgs.splice(idx, 1);
+          return [...msgs, { role: 'assistant', content: 'Sorry, there was a problem getting an answer from the study assistant.' }];
+        });
+        return;
+      } finally {
+        setChatLoading(false);
+      }
+    }
+
     setMessages((prev) => [
       ...prev,
       { role: "assistant", content: "__LOADING__" },
@@ -176,8 +217,26 @@ const StudySession = () => {
         answer = "Sorry, there was a problem getting an answer from the study assistant.";
       } else {
         const data = await res.json();
-        answer = data.answer;
+        answer = data.answer || data.text || "";
       }
+      // If we got no useful answer, try asking the general LLM (no context)
+      if (!answer || /no answer|couldn't find|i'm not sure|sorry/i.test(answer)) {
+        try {
+          const gen = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: textToSend, context: '' }),
+          });
+          if (gen.ok) {
+            const gd = await gen.json();
+            const genAnswer = gd?.answer || gd?.text || '';
+            if (genAnswer && !/no answer/i.test(genAnswer)) answer = genAnswer;
+          }
+        } catch (e) {
+          // ignore second-stage errors, we'll keep original answer
+        }
+      }
+
       setMessages((prev) => {
         const msgs = prev.slice();
         const idx = msgs.findIndex((m) => m.content === "__LOADING__");
@@ -324,8 +383,37 @@ const StudySession = () => {
       });
       if (!res.ok) return "Sorry, I couldn't get an answer.";
       const data = await res.json();
-      return data.answer || "I'm not sure about that.";
-    } catch {
+      let answer = data.answer || data.text || '';
+
+      // If no useful answer from notes-based query, try a general LLM call (no context)
+      if (!answer || answer.trim() === '') {
+        try {
+          const gen = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: query, context: '' }),
+          });
+          if (gen.ok) {
+            const gd = await gen.json();
+            const genAnswer = gd?.answer || gd?.text || '';
+            if (genAnswer && genAnswer.trim() !== '') {
+              answer = genAnswer;
+            }
+          }
+        } catch (e) {
+          // ignore and fall through to fallback
+        }
+        if (!answer || answer.trim() === '') {
+          const fallback = "I don't see local notes for that topic. I can still try to answer generally — would you like me to use your local notes to expand? Reply 'yes' to use them.";
+          setLastPendingQueryForNotes(query);
+          try { speak && speak(fallback, 1); } catch {}
+          return fallback;
+        }
+      }
+
+      return answer || "I'm not sure about that.";
+    } catch (err) {
+      console.error(err);
       return "Sorry, there was an error.";
     }
   };

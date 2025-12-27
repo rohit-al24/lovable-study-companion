@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect } from "react";
+import { supabase } from "@/lib/supabaseClient";
+import { apiUrl } from "@/lib/api";
 import { Mic, X, Sparkles, Volume2 } from "lucide-react";
 import { useVoice } from "@/hooks/useVoice";
 
@@ -11,6 +13,10 @@ const wakeWords = ["griffin"];
 
 export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, context }) => {
   const { speak } = useVoice();
+  const [convoHistory, setConvoHistory] = useState<{role: 'user'|'assistant', content: string}[]>([]);
+  const [saveConversations, setSaveConversations] = useState<boolean>(() => {
+    try { return localStorage.getItem('griffin_save_conversations') !== 'false'; } catch { return true; }
+  });
   const [liveAssistantOn, setLiveAssistantOn] = useState(false);
   const [isAssistantActive, setIsAssistantActive] = useState(false);
   const [assistantPos, setAssistantPos] = useState<{ x: number; y: number }>({
@@ -25,14 +31,77 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
     originY: 0,
   });
   const recognitionRef = useRef<any | null>(null);
+  const awaitingSingleStartRef = useRef(false);
+  const processingQueryRef = useRef(false);
+  const startingBackgroundRef = useRef(false);
   const [isBackgroundRunning, setIsBackgroundRunning] = useState(false);
   const singleRef = useRef<any | null>(null);
+  const singleRestartCountRef = useRef(0);
   const [listeningForQuery, setListeningForQuery] = useState(false);
   const [popupState, setPopupState] = useState<'hidden'|'listening'|'recognizing'|'reply'>('hidden');
   const [popupTranscript, setPopupTranscript] = useState('');
   const [popupReply, setPopupReply] = useState('');
   const failureCountRef = useRef(0);
   const [expandedView, setExpandedView] = useState(false);
+
+  // Helper: call provided onQuery handler, then fallback to general LLM (no context)
+  const handleQuery = async (query: string) => {
+    // record user message
+    setConvoHistory((h) => [...h, { role: 'user', content: query }].slice(-20));
+    let answer = '';
+    try {
+      if (onQuery) {
+        const res = onQuery(query);
+        const awaited = await Promise.resolve(res as any);
+        if (typeof awaited === 'string' && awaited.trim()) answer = awaited;
+      }
+    } catch (e) {
+      console.warn('onQuery handler error', e);
+    }
+
+    // If onQuery returned nothing or an unhelpful message, try the general LLM (use convo history + optional page context)
+    if (!answer || /no answer|couldn't find|i'm not sure|sorry|no response/i.test(answer.toLowerCase())) {
+      try {
+        const historyText = convoHistory.concat([{ role: 'user', content: query }])
+          .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`).join('\n');
+        // Include any provided page context after the conversation history
+        const fullContext = `${historyText}\n\n${context || ''}`.trim();
+        const gen = await fetch(apiUrl('/api/llm/ask'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: query, context: fullContext }),
+        });
+        if (gen.ok) {
+          const gd = await gen.json();
+          const genAnswer = gd?.answer || gd?.text || '';
+          if (genAnswer && genAnswer.trim()) answer = genAnswer;
+        }
+      } catch (e) {
+        console.warn('FloatingAssistant: general LLM fallback failed', e);
+      }
+    }
+
+    // record assistant reply
+    if (answer && String(answer).trim()) {
+      setConvoHistory((h) => [...h, { role: 'assistant', content: answer }].slice(-20));
+    }
+
+    // Persist to Supabase for user if enabled (non-blocking)
+    if (saveConversations) {
+      (async () => {
+        try {
+          const { data: userData } = await supabase.auth.getUser();
+          const uid = (userData as any)?.user?.id || null;
+          await supabase.from('conversations').insert([{ user_id: uid, question: query, answer: answer || '', context: context || null }]);
+        } catch (e) {
+          // If table doesn't exist or insert fails, don't break the flow
+          console.warn('Could not persist conversation to Supabase', e);
+        }
+      })();
+    }
+
+    return answer;
+  };
 
   // Background wake-word listener
   useEffect(() => {
@@ -45,6 +114,8 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
 
     const startBackground = async () => {
       if (!mounted || !liveAssistantOn) return;
+      if (startingBackgroundRef.current) return;
+      startingBackgroundRef.current = true;
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         console.warn('No getUserMedia available');
         setPopupState('reply');
@@ -63,7 +134,7 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       const rec = new (window as any).webkitSpeechRecognition();
       rec.continuous = true;
       rec.interimResults = true;
-      rec.lang = 'en-IN';
+      rec.lang = 'en-US';
 
       rec.onresult = (event: any) => {
         try {
@@ -77,16 +148,28 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
           }
           const text = (final || interim).trim();
           if (!text) return;
+          console.log('[FloatingAssistant] Recognized:', text);
           const lowered = text.toLowerCase();
-          if (lowered.startsWith('griffin')) {
+          const griffinIdx = lowered.indexOf('griffin');
+          if (griffinIdx !== -1) {
+            // Prevent re-entrancy
+            if (processingQueryRef.current) return;
             setIsAssistantActive(true);
             setExpandedView(true);
-            const cleaned = text.replace(/^(griffin)\b[\,\s]*/i, '').trim();
-            if (!cleaned) {
-              try { rec.stop(); } catch (e) {}
-              startSingleShotListener('');
-            } else {
-              setTimeout(() => { if (cleaned && onQuery) onQuery(cleaned); }, 120);
+            try { window.speechSynthesis?.cancel(); } catch (e) {}
+            // Everything after 'griffin' is the query
+            const cleaned = text.slice(griffinIdx + 7).replace(/^\b[\,\s]*/i, '').trim();
+            // mark that we want to start single-shot after background stops
+            awaitingSingleStartRef.current = true;
+            try { rec.stop(); } catch (e) {}
+            // If we already captured a query immediately after wake word, handle it
+            if (cleaned) {
+              processingQueryRef.current = true;
+              setTimeout(() => {
+                if (cleaned) {
+                  handleQuery(cleaned).finally(() => { processingQueryRef.current = false; });
+                }
+              }, 120);
             }
           }
         } catch (e) {
@@ -114,9 +197,16 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       rec.onend = () => {
         recognitionRef.current = null;
         setIsBackgroundRunning(false);
+        startingBackgroundRef.current = false;
         if (!mounted) return;
+        // If we requested a single-shot listener, start it now
+        if (awaitingSingleStartRef.current && !listeningForQuery) {
+          awaitingSingleStartRef.current = false;
+          setTimeout(() => startSingleShotListener(''), 500);
+          return;
+        }
         if (liveAssistantOn && !listeningForQuery) {
-          const backoff = (failureCountRef.current || 0) >= 3 ? 2000 : 300;
+          const backoff = (failureCountRef.current || 0) >= 3 ? 2000 : 800;
           setTimeout(() => { if (mounted && liveAssistantOn) startBackground(); }, backoff);
         }
       };
@@ -138,6 +228,30 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
     };
   }, [liveAssistantOn, onQuery, listeningForQuery]);
 
+  // Load recent conversations for signed-in user (if any) when component mounts
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = (userData as any)?.user?.id || null;
+        if (!uid) return;
+        const { data } = await supabase.from('conversations').select('question,answer').eq('user_id', uid).order('id', { ascending: false }).limit(50);
+        if (!mounted || !data) return;
+        const items = (data as any[]).slice().reverse();
+        const history: {role: 'user'|'assistant', content: string}[] = [];
+        for (const row of items) {
+          if (row.question) history.push({ role: 'user', content: row.question });
+          if (row.answer) history.push({ role: 'assistant', content: row.answer });
+        }
+        if (history.length) setConvoHistory(history.slice(-20));
+      } catch (e) {
+        console.warn('Could not load past conversations', e);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
   const startSingleShotListener = (initialText: string = '') => {
     if (!('webkitSpeechRecognition' in window)) return;
     setListeningForQuery(true);
@@ -145,6 +259,8 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
     setExpandedView(true);
     setPopupState('listening');
     setPopupTranscript(initialText || '');
+    singleRestartCountRef.current = 0;
+    try { window.speechSynthesis?.cancel(); } catch (e) {}
     if (singleRef.current) {
       try { singleRef.current.stop(); } catch {}
       singleRef.current = null;
@@ -171,30 +287,30 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
       setPopupTranscript(display);
     };
     srec.onerror = (ev: any) => {
-      console.warn('Single-shot recognizer error', ev);
+      console.warn('Single-shot recognizer error', ev.error, ev);
+      setPopupReply(`Mic error: ${ev.error || 'unknown'}`);
       setListeningForQuery(false);
       setIsAssistantActive(false);
-      setPopupState('hidden');
+      setPopupState('reply');
+      processingQueryRef.current = false;
       try { recognitionRef.current?.start(); } catch {}
     };
     srec.onend = () => {
       const elapsed = Date.now() - startTime;
-      if (elapsed < 3000) {
-        setTimeout(() => startSingleShotListener(captured), 120);
+      const sinceLast = Date.now() - lastResultTime;
+      // If the recognizer ended quickly (likely due to brief silence), allow a few retries
+      if (elapsed < 5000 && sinceLast < 2000 && singleRestartCountRef.current < 3) {
+        singleRestartCountRef.current++;
+        const retryDelay = 400 + singleRestartCountRef.current * 200;
+        setTimeout(() => startSingleShotListener(captured), retryDelay);
         return;
       }
+      singleRestartCountRef.current = 0;
       setListeningForQuery(false);
       setPopupState('recognizing');
       (async () => {
         try {
-          let answer = '';
-          if (onQuery) {
-            const result = onQuery(captured);
-            const awaited = await Promise.resolve(result as any);
-            if (typeof awaited === 'string') {
-              answer = awaited;
-            }
-          }
+          const answer = await handleQuery(captured);
           setPopupReply(answer || 'I heard you, but no response was generated.');
           setPopupState('reply');
           if (answer) speak(answer);
@@ -203,6 +319,8 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
           setPopupReply('Error getting reply.');
           setPopupState('reply');
           try { recognitionRef.current?.start(); } catch {}
+        } finally {
+          processingQueryRef.current = false;
         }
       })();
     };
@@ -263,7 +381,12 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
               setLiveAssistantOn(true);
               setExpandedView(true);
             } else {
-              setExpandedView(!expandedView);
+              if (expandedView) {
+                try { window.speechSynthesis?.cancel(); } catch (e) {}
+                closeAssistant();
+              } else {
+                setExpandedView(true);
+              }
             }
           }}
           className="relative group"
@@ -404,11 +527,19 @@ export const FloatingAssistant: React.FC<FloatingAssistantProps> = ({ onQuery, c
 
               {/* Title */}
               <div className="text-center">
-                <h2 className="text-2xl font-bold text-white mb-1">Griffin</h2>
+                <h2 className="text-2xl font-bold text-white mb-1">Griffin AI — Study Assistant by Zynix</h2>
                 <p className="text-white/60 text-sm flex items-center justify-center gap-2">
                   <Sparkles className="w-4 h-4" />
                   Your AI Study Companion
                 </p>
+                <div className="mt-2 flex items-center justify-center gap-3">
+                  <label className="text-xs text-white/70">Save chats</label>
+                  <input
+                    type="checkbox"
+                    checked={saveConversations}
+                    onChange={(e) => { setSaveConversations(e.target.checked); try { localStorage.setItem('griffin_save_conversations', String(e.target.checked)); } catch {} }}
+                  />
+                </div>
               </div>
             </div>
 

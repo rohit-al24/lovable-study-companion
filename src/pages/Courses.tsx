@@ -171,22 +171,112 @@ const Courses = () => {
 
   // Assistant UI + voice
   const [assistantMessage, setAssistantMessage] = useState<string>("");
+  const [lastPendingQueryForNotes, setLastPendingQueryForNotes] = useState<string | null>(null);
   const { speak } = useVoice(localStorage.getItem('griffin_voice') || '');
 
   // Handler for assistant queries on Courses page (calls backend LLM)
   const handleAssistantQuery = async (query: string) => {
     setAssistantMessage('Thinking...');
     try {
+      const q = query.trim().toLowerCase();
+
+      // Local handlers: course progress, counts, hours
+      if (Array.isArray(courses) && courses.length > 0) {
+        if (q.includes('how many courses') || q.includes('total courses') || q.includes('what courses')) {
+          const names = courses.map((c) => c.name).filter(Boolean).join(', ');
+          const res = `You have ${courses.length} course(s): ${names}.`;
+          setAssistantMessage(res);
+          speak && speak(res, 1);
+          setTimeout(() => setAssistantMessage(''), 10000);
+          return res;
+        }
+        if (q.includes('overall progress') || q.includes('average progress') || q.includes('semester progress')) {
+          const avg = Math.round((courses.reduce((acc, c) => acc + (c.progress || 0), 0) || 0) / Math.max(1, courses.length));
+          const res = `Your average progress across ${courses.length} course(s) is ${avg}%.`;
+          setAssistantMessage(res);
+          speak && speak(res, 1);
+          setTimeout(() => setAssistantMessage(''), 10000);
+          return res;
+        }
+        if (q.includes('hours') || q.includes('hours studied')) {
+          const hours = courses.reduce((acc, c) => acc + (c.hoursCompleted || 0), 0);
+          const res = `You've studied a total of ${hours} hour(s) across all courses.`;
+          setAssistantMessage(res);
+          speak && speak(res, 1);
+          setTimeout(() => setAssistantMessage(''), 10000);
+          return res;
+        }
+      }
+
+      // Handle 'yes' to use local notes for previous query
+      if (q === 'yes' || q === 'use notes' || q === 'use my notes') {
+        if (lastPendingQueryForNotes) {
+          const allNotes = Array.isArray(courses) ? courses.map((c) => Array.isArray(c.notes) ? c.notes.join('\n') : (c.notes || '')).join('\n') : '';
+          setAssistantMessage('Using your local notes...');
+          const resp2 = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: lastPendingQueryForNotes, context: allNotes }),
+          });
+          const data2 = await resp2.json();
+          const answer2 = data2?.answer || data2?.text || 'Sorry, no answer.';
+          setAssistantMessage(answer2);
+          speak && speak(answer2, 1);
+          setLastPendingQueryForNotes(null);
+          setTimeout(() => setAssistantMessage(''), 10000);
+          return answer2;
+        }
+      }
+
+      // Prefer matched course notes when possible
+      const allNotes = Array.isArray(courses) ? courses.map((c) => Array.isArray(c.notes) ? c.notes.join('\n') : (c.notes || '')).join('\n') : '';
+      const matched = Array.isArray(courses) ? courses.filter((c) => {
+        const name = (c.name || '').toLowerCase();
+        return name && (q.includes(name) || name.includes(q) || query.toLowerCase().includes(name));
+      }) : [];
+      const contextToSend = (matched && matched.length > 0) ? matched.map((c) => Array.isArray(c.notes) ? c.notes.join('\n') : (c.notes || '')).join('\n') : allNotes;
+
       const resp = await fetch(apiUrl('/api/llm/ask'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: query, context: { courses } }),
+        body: JSON.stringify({ question: query, context: contextToSend }),
       });
       const data = await resp.json();
-      const answerText = data?.answer || data?.text || 'Sorry, no answer.';
+      let answerText = data?.answer || data?.text || '';
+
+      if ((!matched || matched.length === 0) && (!answerText || answerText.trim() === '')) {
+        // Try general LLM (no context) before asking user to use local notes
+        try {
+          const gen = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: query, context: '' }),
+          });
+          if (gen.ok) {
+            const gd = await gen.json();
+            const genAnswer = gd?.answer || gd?.text || '';
+            if (genAnswer && genAnswer.trim() !== '') {
+              answerText = genAnswer;
+            }
+          }
+        } catch (e) {
+          // ignore and fall through to fallback
+        }
+        if (!answerText || answerText.trim() === '') {
+          const fallback = "I don't see local notes for that topic. I can still try to answer generally — would you like me to use your local notes to expand? Reply 'yes' to use them.";
+          setLastPendingQueryForNotes(query);
+          setAssistantMessage(fallback);
+          speak && speak(fallback, 1);
+          setTimeout(() => setAssistantMessage(''), 10000);
+          return fallback;
+        }
+      }
+
+      if (!answerText || /not in the provided notes|i don't know/i.test(answerText)) answerText = 'Sorry, no answer.';
       setAssistantMessage(answerText);
       speak && speak(answerText, 1);
       setTimeout(() => setAssistantMessage(''), 10000);
+      return answerText;
     } catch (err) {
       console.error(err);
       setAssistantMessage('Error contacting assistant.');

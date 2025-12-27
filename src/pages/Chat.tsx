@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { apiUrl } from "@/lib/api";
+import { supabase } from "@/lib/supabaseClient";
+import { useVoice } from "@/hooks/useVoice";
 import Navigation from "@/components/Navigation";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,39 +13,156 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  source?: string | null;
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "assistant",
-      content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?",
-      timestamp: "10:30 AM",
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false);
+  const { speak } = useVoice(localStorage.getItem('griffin_voice') || '');
   const [input, setInput] = useState("");
 
-  const sendMessage = () => {
+  // Load recent conversations from Supabase (if signed in)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const uid = (userData as any)?.user?.id || null;
+        if (!uid) {
+          // seed with greeting
+          if (mounted) setMessages([{ role: 'assistant', content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+          return;
+        }
+        const { data } = await supabase.from('conversations').select('question,answer,context,metadata,created_at').eq('user_id', uid).order('id', { ascending: false }).limit(50);
+        if (!mounted) return;
+        if (!data || data.length === 0) {
+          setMessages([{ role: 'assistant', content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+          return;
+        }
+        const rows = (data as any[]).slice().reverse();
+        const msgs: Message[] = [];
+        for (const r of rows) {
+          if (r.question) msgs.push({ role: 'user', content: r.question, timestamp: new Date(r.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+          if (r.answer) msgs.push({ role: 'assistant', content: r.answer, timestamp: new Date(r.created_at || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), source: r.context ? 'notes' : (r.metadata?.source || null) });
+        }
+        setMessages(msgs.length ? msgs : [{ role: 'assistant', content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+      } catch (e) {
+        console.warn('Failed loading conversations', e);
+        if (mounted) setMessages([{ role: 'assistant', content: "Hi there! 💛 I'm Griffin, your AI study companion. How can I help you today?", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }]);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  const sendMessage = async () => {
     if (!input.trim()) return;
+    const now = new Date();
+    const userMsg: Message = { role: 'user', content: input, timestamp: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) };
+    setMessages((prev) => [...prev, userMsg]);
+    const question = input;
+    setInput('');
+    setLoading(true);
+    // show temporary assistant typing
+    setMessages((prev) => [...prev, { role: 'assistant', content: 'Thinking...', timestamp: '' }]);
+    try {
+      // Prefer general LLM (Ollama) first for open questions; fall back to user's notes if needed
+      let answer = '';
+      let source: string | null = null;
+      let notesContext = '';
 
-    const newMessage: Message = {
-      role: "user",
-      content: input,
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
+      try {
+        // 1) General LLM call (no context)
+        try {
+          const respGen = await fetch(apiUrl('/api/llm/ask'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question, context: '' }),
+          });
+          if (respGen.ok) {
+            const genData = await respGen.json();
+            const gen = genData?.answer || genData?.text || '';
+            if (gen && gen.trim()) {
+              answer = gen;
+              source = 'general';
+            }
+          }
+        } catch (e) {
+          console.warn('General LLM primary call failed', e);
+        }
 
-    setMessages([...messages, newMessage]);
-    setInput("");
+        // 2) If general LLM returned nothing useful, try notes
+        if (!answer || /no answer|couldn't find|i'm not sure|sorry|no response|don't know/i.test(String(answer).toLowerCase())) {
+          try {
+            const { data: userData } = await supabase.auth.getUser();
+            const uid = (userData as any)?.user?.id || null;
+            if (uid) {
+              const { data: notesData } = await supabase
+                .from('notes')
+                .select('note_text,text')
+                .eq('user_id', uid)
+                .order('created_at', { ascending: false })
+                .limit(50);
+              if (notesData && Array.isArray(notesData) && notesData.length > 0) {
+                notesContext = notesData.map((n: any) => (n.note_text || n.text || '')).filter(Boolean).join('\n');
+              }
+            }
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
-        role: "assistant",
-        content: "I'm here to help! Let me think about that...",
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      setMessages((prev) => [...prev, aiResponse]);
-    }, 1000);
+            if (notesContext) {
+              const resp = await fetch(apiUrl('/api/llm/ask'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question, context: notesContext }),
+              });
+              if (resp.ok) {
+                const data = await resp.json();
+                const noteAns = data?.answer || data?.text || '';
+                if (noteAns && noteAns.trim()) {
+                  answer = noteAns;
+                  source = 'notes';
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Notes-based attempt failed', e);
+          }
+        }
+      } catch (e) {
+        console.warn('Answering flow failed', e);
+      }
+      const assistantMsg: Message = { role: 'assistant', content: answer, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), source };
+      setMessages((prev) => {
+        const copy = prev.slice();
+        // remove last temporary assistant placeholder
+        if (copy.length && copy[copy.length - 1].role === 'assistant' && copy[copy.length - 1].content === 'Thinking...') copy.pop();
+        return [...copy, assistantMsg];
+      });
+      // speak answer
+      try { speak(answer); } catch {}
+
+      // Persist to Supabase if user opted in (include whether notes were used)
+      try {
+        const shouldSave = localStorage.getItem('griffin_save_conversations') !== 'false';
+        if (shouldSave) {
+          const { data: userData } = await supabase.auth.getUser();
+          const uid = (userData as any)?.user?.id || null;
+          const contextToSave = source === 'notes' ? (typeof notesContext === 'string' ? notesContext.slice(0, 10000) : null) : null;
+          const metadata = { source };
+          await supabase.from('conversations').insert([{ user_id: uid, question, answer, context: contextToSave, metadata }]);
+        }
+      } catch (e) {
+        console.warn('Could not persist chat', e);
+      }
+    } catch (e) {
+      console.error(e);
+      setMessages((prev) => {
+        const copy = prev.slice();
+        if (copy.length && copy[copy.length - 1].role === 'assistant' && copy[copy.length - 1].content === 'Thinking...') copy.pop();
+        return [...copy, { role: 'assistant', content: 'Error while contacting assistant.', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }];
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const quickActions = [
@@ -117,6 +237,13 @@ const Chat = () => {
                     }`}
                   >
                     <p className="text-sm">{message.content}</p>
+                    {message.role === 'assistant' && message.source && (
+                      <div className="mt-2">
+                        <span className={`inline-block text-[10px] px-2 py-1 rounded-full ${message.source === 'notes' ? 'bg-yellow-100 text-yellow-800' : 'bg-blue-100 text-blue-800'}`}>
+                          {message.source === 'notes' ? 'Notes' : 'General'}
+                        </span>
+                      </div>
+                    )}
                   </Card>
                   <span className="text-xs text-muted-foreground mt-1">{message.timestamp}</span>
                 </div>
